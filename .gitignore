@@ -1,4 +1,5 @@
 summarization_results*
+summarization_data*
 config.yaml 
 
 # Byte-compiled / optimized / DLL files
@@ -160,3 +161,8 @@ gpt-4/summarization_data/
 gpt-4/summarization_data/README.md
 
 revised_examples/
+
+
+# data
+scratch/
+.DS_Store/

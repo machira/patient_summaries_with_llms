@@ -1,7 +1,4 @@
 import os
-import numpy as np
-from collections import defaultdict
-from tqdm import tqdm
 import argparse
 from pathlib import Path
 
@@ -9,16 +6,16 @@ import torch
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
+from tqdm import tqdm
 from peft import (
-        get_peft_model, 
-        prepare_model_for_kbit_training, 
+        get_peft_model,
         LoraConfig
     )
 from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
 from peft import PeftModel
-import evaluate
-from rouge_score import rouge_scorer
 import wandb
+
+from metrics_utils import compute_custom_metrics, print_metrics_as_latex
 
 transformers.logging.set_verbosity_info()
 
@@ -88,43 +85,6 @@ def parse_args():
     return args
 
 
-# Use custom rouge function to obtain rouge 3/4 which are not available in huggingface
-def get_rouge_score(gold, pred):
-    rouge_scores = ['rouge1', 'rouge2', 'rouge3', 'rouge4', 'rougeL']
-    scorer = rouge_scorer.RougeScorer(rouge_scores, use_stemmer=True)
-    scores = scorer.score(gold, pred)
-    return {k: scores[k].fmeasure * 100 for k in rouge_scores}
-
-def compute_custom_metrics(srcs, golds, preds, device):
-    scores = defaultdict(list)
-    bertscore = evaluate.load("bertscore")
-    sari = evaluate.load("sari")
-    
-    # For rouge and length go over examples one by one and determine mean
-    for gold, pred in zip(golds, preds):
-        for k, v in get_rouge_score(gold, pred).items():
-            scores[k].append(v)
-        scores['words'].append(len(pred.split(' ')))
-    for k, v in scores.items():
-        scores[k] = np.mean(v)
-
-    # This is the default call using model_type="roberta-large"
-    # This is the same as in the paper "Generation of Patient After-Visit Summaries to Support Physicians" (AVS_gen/eval_summarization.py) using the libary SummerTime
-    scores['bert_score'] = np.mean((bertscore.compute(predictions=preds, references=golds, lang="en", device=device))['f1']) * 100
-    # BERTScore authors recommend "microsoft/deberta-large-mnli" (https://github.com/Tiiiger/bert_score)
-    scores['bert_score_deberta-large'] = np.mean((bertscore.compute(predictions=preds, references=golds, device=device, model_type="microsoft/deberta-large-mnli"))['f1']) * 100
-    scores['sari'] = sari.compute(sources=srcs, predictions=preds, references=[[g] for g in golds])['sari']
-    # scores['sari'] = scores['sari'][0]
-    # Importing readability for dallc score not working: https://pypi.org/project/py-readability-metrics/    
-
-    return scores
-
-def print_metrics_as_latex(metrics):
-    # Print latex table row
-    order = ['rouge1', 'rouge2', 'rouge3', 'rouge4', 'rougeL', 'bert_score', 'bert_score_deberta-large', 'sari', 'words']
-    print(' & '.join([f'${metrics[k]:.2f}$' for k in order]))
-        
-
 def main():
     # Code based on summarization mimic iv notebook
     args = parse_args()
@@ -163,12 +123,14 @@ def main():
     # Load model
     hf_token = ''
     model_name = args.model_name_or_path
-    model = AutoModelForCausalLM.from_pretrained(model_name,
-                                                load_in_8bit=True,
-                                                # For manual run with CUDA_VISIBLE_DEVICES use "cuda:0" as device_map
-                                                device_map='auto',  # can be specific with device, but if CUDA_VISIBLE_DEVICES is set, auto should work
-                                                token=hf_token,
-                                                )
+    use_bf16 = torch.cuda.is_available() and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
+    dtype = torch.bfloat16 if use_bf16 else torch.float16
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=dtype,
+        device_map='auto',  # can be specific with device, but if CUDA_VISIBLE_DEVICES is set, auto should work
+        token=hf_token,
+    )
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)  # Padding size for batched prediction from HF warning
     # Workaround for missing padding token
     # From https://github.com/huggingface/transformers/issues/22312 (comment Jun 28)
@@ -292,8 +254,6 @@ def main():
 
     else: 
         # Training
-        # Loading in 8 bit ..."
-        model = prepare_model_for_kbit_training(model)
         model = get_peft_model(model, lora_config)
         
 
@@ -312,7 +272,7 @@ def main():
                     logging_steps=args.save_and_logging_steps, # eval_steps defaults to this
                     load_best_model_at_end=True,
                     # metric_for_best_model defaults to loss, rouge not possible since no decoding in compute_metrics
-                    optim = "paged_adamw_32bit",
+                    optim = "adamw_torch",
                     # no clear evidence for lr scheduler:
                     # * original llama and some sources use cosine (however llama with minimum of 0.1)
                     # * often when paged_adamw is used, constant is used (strongest evidence: https://www.philschmid.de/instruction-tune-llama-2)
@@ -323,6 +283,8 @@ def main():
                     group_by_length=True,
                     ddp_find_unused_parameters=False,
                     report_to="wandb",
+                    fp16=not use_bf16,
+                    bf16=use_bf16,
                 )
 
 

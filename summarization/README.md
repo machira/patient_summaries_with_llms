@@ -2,6 +2,33 @@
 
 This folder contains the scripts to run and evanluate the summarization models LED and Llama 2.
 
+## Quick Llama 2 7B smoke test (no training)
+
+If you only need to confirm that the inference stack works (e.g., HF auth token, CUDA),
+run one of the lightweight helpers below. Both load `meta-llama/Llama-2-7b-chat-hf` in fp16 and
+summarize a single example:
+
+### Option A: Stand-alone script (uses dataset JSONL)
+
+```bash
+# Ensure HF_TOKEN is exported so gated checkpoints can be downloaded.
+export HF_TOKEN=hf_xxx
+
+python summarization/simple_llama7b_smoke.py \
+  --model_name_or_path meta-llama/Llama-2-7b-chat-hf \
+  --data_file data/ann-pt-summ/1.0.1/mimic-iv-note-ext-di-bhc/dataset/valid.json \
+  --example_index 0
+```
+
+You should see the reference summary printed first, followed by the generated text. This provides a
+very fast confidence check before attempting any fine-tuning or larger experiments.
+
+### Option B: Self-contained Colab notebook
+
+If you prefer a Colab cell without touching the dataset files, open
+`notebooks/llama7b_smoke_test.ipynb`. It installs `transformers`, creates an inline
+example, and runs the same inference snippet end to end.
+
 ## Final Performance Runs
 
 * Choose best model according to BERTScore on 100 validation examples

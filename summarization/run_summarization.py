@@ -26,7 +26,7 @@ from typing import Optional
 
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
-from datasets import load_dataset, load_metric
+from datasets import load_dataset
 # from peft import get_peft_config, get_peft_model, LoraConfig, TaskType, prepare_model_for_int8_training
 import pickle
 import torch
@@ -34,6 +34,7 @@ from transformers.modeling_utils import _load_state_dict_into_model
 
 
 import transformers
+import evaluate
 from filelock import FileLock
 from transformers import (
     AutoConfig,
@@ -51,7 +52,7 @@ from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
 import wandb
 
-from fine_tune_llama import compute_custom_metrics, print_metrics_as_latex
+from metrics_utils import compute_custom_metrics, print_metrics_as_latex
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -59,15 +60,20 @@ check_min_version("4.5.0.dev0")
 
 logger = logging.getLogger(__name__)
 
-try:
-    nltk.data.find("tokenizers/punkt")
-except (LookupError, OSError):
-    if is_offline_mode():
-        raise LookupError(
-            "Offline mode: run this script without TRANSFORMERS_OFFLINE first to download nltk data files"
-        )
-    with FileLock(".lock") as lock:
-        nltk.download("punkt", quiet=True)
+def ensure_nltk_resource(resource: str, path: str) -> None:
+    try:
+        nltk.data.find(path)
+    except (LookupError, OSError):
+        if is_offline_mode():
+            raise LookupError(
+                f"Offline mode: run this script without TRANSFORMERS_OFFLINE first to download nltk resource '{resource}'."
+            )
+        with FileLock(".lock") as lock:
+            nltk.download(resource, quiet=True)
+
+
+ensure_nltk_resource("punkt", "tokenizers/punkt")
+ensure_nltk_resource("punkt_tab", "tokenizers/punkt_tab/english.pickle")
 
 
 @dataclass
@@ -548,7 +554,7 @@ def main():
         )
 
     # Metric
-    metric = load_metric("rouge")
+    metric = evaluate.load("rouge")
 
     def postprocess_text(preds, labels):
         preds = [pred.strip() for pred in preds]
@@ -572,8 +578,16 @@ def main():
         # Some simple post-processing
         decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
         result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
-        # Extract a few results from ROUGE
-        result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
+        # Extract a few results from ROUGE. evaluate>=0.4 returns dicts with fmeasure directly.
+        processed_result = {}
+        for key, value in result.items():
+            if isinstance(value, dict) and "mid" in value:
+                processed_result[key] = value["mid"]["fmeasure"] * 100
+            elif hasattr(value, "mid"):  # backwards compatibility
+                processed_result[key] = value.mid.fmeasure * 100
+            else:
+                processed_result[key] = value * 100
+        result = processed_result
         prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]
         result["gen_len"] = np.mean(prediction_lens)
         result = {k: round(v, 4) for k, v in result.items()}

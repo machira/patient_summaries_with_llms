@@ -134,7 +134,7 @@ def write_jsonl(file_name, data):
             f.write(json.dumps(line) + "\n")
 
 
-def load_oai_model(model_name, max_calls_per_min=60):
+def load_oai_model(model_name, max_calls_per_min=5):
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
 

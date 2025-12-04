@@ -67,7 +67,7 @@ Next, install the nevessary requirements. For installing `torch` you might adapt
 
 ```
 pip install torch torchvision torchaudio
-pip install transformers bitsandbytes sentencepiece accelerate datasets peft trl py7zr scipy wandb evaluate rouge-score sacremoses sacrebleu seqeval bert_score swifter bioc medcat plotly nervaluate nbformat kaleido
+pip install transformers sentencepiece accelerate datasets peft trl py7zr scipy wandb evaluate rouge-score sacremoses sacrebleu seqeval bert_score swifter bioc medcat plotly nervaluate nbformat kaleido
 pip install -U spacy
 python -m spacy download en_core_web_sm
 ```
