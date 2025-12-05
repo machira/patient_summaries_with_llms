@@ -166,3 +166,5 @@ revised_examples/
 # data
 scratch/
 .DS_Store/
+.tmp.driveupload/
+.tmp.drivedownload/
