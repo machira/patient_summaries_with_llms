@@ -1,0 +1,11 @@
+{
+    "rouge1": 36.95,
+    "rouge2": 11.68,
+    "rouge3": 4.64,
+    "rouge4": 2.08,
+    "rougeL": 22.55,
+    "words": 106.0,
+    "bert_score": 84.86,
+    "bert_score_deberta-large": 57.59,
+    "sari": 41.95
+}

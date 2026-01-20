@@ -1,0 +1,22 @@
+# Core numerical/ML stack (CPU builds by default)
+torch==2.6.0
+torchvision==0.21.0
+torchaudio==2.6.0
+numpy==1.26.4
+
+# Hugging Face + evaluation libs
+transformers==4.38.2
+datasets==2.18.0
+accelerate==0.28.0
+evaluate==0.4.1
+rouge-score==0.1.2
+sacrebleu==2.4.0
+sentencepiece==0.1.99
+trl==0.7.10
+peft==0.10.0
+wandb==0.16.6
+
+bert_score
+bert
+sacremoses
+fire

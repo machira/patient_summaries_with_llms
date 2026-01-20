@@ -1,0 +1,3641 @@
+Proceedings of Machine Learning Research 248:339–379, 2024
+
+Conference on Health, Inference, and Learning (CHIL) 2024
+
+arXiv:2402.15422v2 [cs.CL] 25 Jun 2024
+
+A Data-Centric Approach To Generate Faithful and High Quality
+Patient Summaries with Large Language Models
+Stefan Hegselmann1
+Shannon Zejiang Shen2
+Florian Gierse1
+Monica Agrawal3
+David Sontag2
+Xiaoyi Jiang1
+
+stefan.hegselmann@uni-muenster.de
+zjshen@mit.edu
+flogierse@uni-muenster.de
+monica.agrawal@duke.edu
+dsontag@csail.mit.edu
+xjiang@uni-muenster.de
+
+1
+
+University of Münster, Germany
+MIT CSAIL, Cambridge, MA, USA
+3
+Duke University, Durham, NC, USA
+2
+
+Abstract
+Patients often face difficulties in understanding
+their hospitalizations, while healthcare workers have limited resources to provide explanations. In this work, we investigate the potential of large language models to generate patient summaries based on doctors’ notes and
+study the effect of training data on the faithfulness and quality of the generated summaries.
+To this end, we release (i) a rigorous labeling
+protocol for errors in medical texts and (ii) a
+publicly available dataset of annotated hallucinations in 100 doctor-written and 100 generated summaries. We show that fine-tuning
+on hallucination-free data effectively reduces
+hallucinations from 2.60 to 1.55 per summary
+for Llama 2, while preserving relevant information. We observe a similar effect on GPT4 (0.70 to 0.40), when the few-shot examples
+are hallucination-free. We also conduct a qualitative evaluation using hallucination-free and
+improved training data. We find that common
+quantitative metrics do not correlate well with
+faithfulness and quality. Finally, we test GPT4 for automatic hallucination detection, which
+clearly outperforms common baselines.
+
+Data and Code Availability We use MIMIC-IVNote (Johnson et al., 2023; Goldberger et al., 2000).
+We create a dataset of discharge instructions (MIMICIV-Note-Ext-DI) and hallucination annotations for
+100 doctor-written and 100 generated patient summaries (Hallucinations-{MIMIC,Generated}-DI).
+Our data and code: https://doi.org/10.13026/
+m6hf-dq94 and https://github.com/stefanhgm/
+patient_summaries_with_llms.
+
+Institutional Review Board (IRB) Our work
+did not require IRB approval. The two clinical annotators are authors of this paper, and both had credentialed access to the MIMIC-IV-Note dataset.
+
+1. Introduction
+Many patients do not understand the events that
+occurred during their hospitalization and the subsequent actions they need to take (Kebede et al., 2014).
+For instance, Horwitz et al. (2013) performed postdischarge interviews and found that only 59.6% of the
+patients were able to accurately describe their admission diagnosis and 43.9% could fully describe their
+scheduled follow-up appointments. Improved discharge communication is associated with lower hospital readmission rates and higher adherence to treatment regiments (Becker et al., 2021). A potential
+intervention to improve patient comprehension could
+be patient-oriented summaries that describe all relevant facts in layperson language (Federman et al.,
+2018). However, writing high-quality patient summaries is a difficult and time-consuming task (Mueller
+et al., 2015), and healthcare workers already face high
+workloads (Phillips, 2020; Watson et al., 2019).
+Large language models (LLMs) have demonstrated
+strong capabilities on many natural language tasks
+including medical summarization (Van Veen et al.,
+2024). However, LLMs are prone to generating unsupported or erroneous facts also referred to as hallucinations (Maynez et al., 2020). In healthcare, this
+issue is further aggravated by the fragmented nature
+of healthcare data, as datasets often do not perfectly
+
+© 2024 S. Hegselmann, S.Z. Shen, F. Gierse, M. Agrawal, D. Sontag & X. Jiang.
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Figure 1: We developed a protocol for annotating hallucinations in medical text. Following this protocol, two
+medical experts labeled hallucinations in 100 doctor-written (Hallucinations-MIMIC-DI) and 100
+LLM-generated patient summaries (Hallucinations-Generated-DI). We used the labeled hallucinations in the doctor-written summaries to derive two additional datasets by replacing or removing
+hallucinations (Cleaned) and by further improving the language (Cleaned & Improved). We used
+these two datasets for our data-centric hallucination reduction and qualitative experiments.
+
+mimic the data available at the point of care. For ex- ples with improved quality to study their effect on
+ample, radiologists often compare to previous images the faithfulness and quality of LLMs. Our main conin their reports, even though many medical imaging tributions are:
+datasets do not have the historical images available.
+Similarly, datasets for medical summarization may
+1. We introduce a rigorous annotation protocol for
+not include the full patient history to accompany the
+token-level errors in medical texts.
+written summarization. As a result, there may be
+references in the summary to information that is not
+2. We release two datasets of 100 doctor-written
+supported by the available context or patient history.
+(MIMIC) and 100 generated patient summaries
+Training or fine-tuning on this data replicates these
+with hallucinations labeled by two trained medartifacts leading to “hallucinations”. Several techical experts requiring 70 hours per annotator.
+niques for preventing hallucinations have been studied (Huang et al., 2023). However, hallucinations can
+3. For patient summaries, we demonstrate that
+vary highly in complexity, escaping automatic detecfine-tuning on data with manually removed haltion and making careful human annotation necessary
+lucinations can effectively reduce the hallucina(Thomson et al., 2023; Moramarco et al., 2022).
+tions in LLMs while preserving key information.
+Recent work has emphasized the sample efficiency
+of LLMs. Zhou et al. (2023) showed that 1,000
+carefully selected fine-tuning examples sufficed for
+the successful alignment of Llama 2 (Touvron et al.,
+2023). An additional set of 30 examples was found
+to enable multi-turn dialogues (Zhou et al., 2023).
+Also, GPT-4 achieved state-of-the-art performance
+on many benchmarks using at most 25 in-context examples (OpenAI et al., 2023). These findings open up
+opportunities for data-centric approaches that leverage data curated by human domain experts. In
+this study, we manually create 100 training examples without hallucinations and 100 training exam-
+
+4. We evaluate GPT-4 for automatic hallucination
+detection using our datasets, emphasizing its
+suitability for identifying unsupported evidence.
+
+2. Related Work
+Given the large burden of and repetition within clinical documentation, automated clinical summarization is of great interest across healthcare; generation targets include discharge summaries, radiology
+impression sections, patient-facing instructions, and
+problem lists (Van Veen et al., 2024; Adams et al.,
+
+340
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+2022). Consequently, there has been significant research in the past few years exploring how the advent of LLMs can be leveraged to automate clinical
+summarization. Approaches for control have included
+both zero- and few-shot prompting (Van Veen et al.,
+2024) to fine-tuning (Adams et al., 2022, 2023; Moramarco et al., 2022; Cai et al., 2022; Van Veen et al.,
+2023). Results have been promising; for example,
+Van Veen et al. (2024) found that GPT-4 is often
+preferred over human-generated summaries in terms
+of correctness and completeness.
+However, hallucinations – the generation of facts
+not grounded in the original text — are a recurring
+concern in text summarization, both across natural
+language processing (NLP) in general and specifically
+in the clinical domain (Zhang et al., 2020b; Kryscinski
+et al., 2020; Adams et al., 2022; Cai et al., 2022; Xie
+et al., 2023). Given the ubiquity of this issue, several
+taxonomies have sprung up in the wider NLP community for producing fine-grained annotations of the accuracy of generated text (Thomson and Reiter, 2020;
+Mishra et al., 2024). In the clinical domain, there
+have been similar efforts to annotate hallucinations
+in generated text, but this work has often occurred
+on proprietary data, with coarse buckets, or without the release of annotations (Adams et al., 2023;
+Cai et al., 2022; Van Veen et al., 2024). The closest
+public release was a set of edits clinicians made to
+summaries auto-generated from transcripts, but this
+did not target hallucinations specifically (Moramarco
+et al., 2022). To our knowledge, this work is the
+first to release a dataset highlighting hallucinations
+in clinical summarization. These are particularly important because automated metrics of summarization
+quality, while fast to compute, often do not correlate
+with manually evaluated performance, a finding also
+replicated in this work (Van Veen et al., 2024).
+There have been three major strategies to mitigate
+the effect of hallucinations in auto-generated summaries. The first is to conduct post-hoc detection of
+hallucinations. This has largely involved learning a
+model of hallucinations from synthetically generated
+data (Cai et al., 2022; Zhou et al., 2021; Kryscinski
+et al., 2020) or identifying normalized concepts (e.g.,
+UMLS concepts) that appear in the summary, but
+not the source (Nan et al., 2021; Adams et al., 2022).
+The second strategy is to minimize hallucinations by
+changing the underlying generation model, e.g., by
+grounding in Wikipedia, or first converting the source
+context as triples as an intermediary before generation (Zhang et al., 2020b; Tian et al., 2023; Semnani
+
+et al., 2023; Aralikatte et al., 2021; Cao et al., 2018;
+Cao and Wang, 2021). The final strategy is to improve the quality of the training data itself, either by
+removing poor training examples (Nan et al., 2021)
+or by improving the quality of the training examples.
+For example, to avoid decreasing sample size, Adams
+et al. (2022) revised the reference text via contrastive
+learning on synthetic data. In this work, we show
+that for sample-efficient LLMs, it is sufficient to revise only a small number of training examples that
+are feasible even manually.
+
+3. Datasets
+3.1. MIMIC Discharge Instructions Datasets
+For our experiments, we created a summarization
+dataset with clinical notes as context and patient
+summaries written by doctors as targets. We used
+the MIMIC-IV-Note v2.2 database, which includes
+331,793 deidentified clinical notes from 145,915 patients admitted to Beth Israel Deaconess Medical
+Center in Boston, MA, USA. Each note consists of
+various sections that describe a patient’s hospital
+course. We selected the Discharge Instructions (DI)
+as summaries and the Brief Hospital Course (BHC)
+as contexts since the BHCs contain the most relevant
+information for medical professionals (see Figure 2).
+We chose this shorter context to reduce the effort
+for the human annotators and to better fit it into the
+models’ context windows. Many DIs contained irrelevant artifacts that could distort the downstream analysis. For instance, they consisted of static templates
+or started with a personal salutation. Hence, we designed a preprocessing pipeline selecting and cleaning 100,175 of the original 331,793 MIMIC-IV-Note
+examples (see Appendix A). The resulting dataset
+is named MIMIC-IV-Note-Ext-DI-BHC (see Table 1).
+We also release a version of the dataset with a longer
+context using all note sections before the DI, including the BHC (MIMIC-IV-Note-Ext-DI). Details for
+both summarization datasets can be found in Table
+6 in the Appendix. To further facilitate human annotation, we considered a subset of the data with context lengths of at most 4,000 characters and summary
+lengths of at least 600 characters. This was done to
+reduce the amount of context to take into account for
+the annotators and to increase the information in the
+summaries. The resulting subset contained 26,178
+entries (MIMIC-IV-Note-Ext-DI-BHC-Anno) and we
+used it to sample examples for human annotation.
+
+341
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Dataset
+
+Size
+
+Description
+
+MIMIC Discharge Instructions Datasets
+100,175 Summarization dataset derived from MIMIC-IV-Note with the section
+Discharge Instructions as summary and all prior notes as context
+MIMIC-IV-Note-Ext-DI-BHC
+100,175 MIMIC-IV-Note-Ext-DI with the Brief Hospital Course as context
+MIMIC-IV-Note-Ext-DI-BHC-Anno 26,178 Subset of MIMIC-IV-Note-Ext-DI-BHC with contexts ≤ 4,000 characters
+and summaries ≥ 600 characters to facilitate human annotation
+MIMIC-IV-Note-Ext-DI
+
+Hallucination Datasets Annotated by Two Medical Experts
+Hallucinations-MIMIC-DI
+Hallucinations-Generated-DI
+
+100
+100
+
+Random examples from MIMIC-IV-Note-Ext-DI-BHC-Anno
+20 random contexts from M.-IV-Note-Ext-DI-BHC-Anno and summaries
+generated with five models during hallucination-reduction experiments
+
+Derived Datasets from Hallucinations-MIMIC-DI
+Original
+Cleaned
+Cleaned & Improved
+
+100
+100
+100
+
+Context-summary pairs from Hallucinations-MIMIC-DI
+Original with labeled hallucinations manually removed or replaced
+Cleaned with mistakes and artifacts removed or corrected
+
+Table 1: Overview of all datasets used in this work. All datasets are publicly available on PhysioNet.
+rected mistakes and artifacts in the summaries. This
+dataset was used to fine-tune or prompt the models
+We collected hallucination labels for 100 doctorfor our qualitative evaluation (see Section 4.6).
+written and 100 LLM-generated patient summaries.
+The doctor-written summaries were selected at random from MIMIC-IV-Note-Ext-DI-BHC-Anno. For 4. Methods
+the LLM-generated summaries, we selected 20 heldout contexts from MIMIC-IV-Note-Ext-DI-BHC-Anno 4.1. Generation of Patient Summaries
+and used five models, which had been trained for the
+data-centric hallucination reduction experiments, to In this work, we generated patient summaries given
+generate the summaries. Two medical experts la- the BHC as context. Formally, we have a set of conbeled hallucinations in both datasets, following our texts C = {C1 , ..., Cn } for which we predict the sumannotation protocol. This resulted in two datasets: maries S = {S1 , ..., Sn }. Note, however, that there
+Hallucinations-MIMIC-DI for the doctor-written is an additional translation step that simplifies the
+summaries and Hallucinations-Generated-DI for context into layperson language (Weng et al., 2019).
+On average, the context C was 552.0 words long, and
+the LLM-generated summaries (see Table 1).
+the summary S was 113.2 words long (see Table 6 in
+the Appendix).
+3.3. Derived Datasets
+We included Llama 2 and GPT-4 in the dataWe define Original as a synonym for the data in centric hallucination reduction experiments since
+Hallucinations-MIMIC-DI because it contains the they are commonly used models that allow for
+original 100 doctor-written summaries that may in- sample-efficient alignment (Zhou et al., 2023; Opeclude unsupported facts or errors, referred to as hal- nAI et al., 2023). Since this experiment required
+lucinations. Based on the human labels of these expensive manual annotations of hallucinations, we
+hallucinations, we derived two additional datasets could not test additional models. For the quantifrom Hallucinations-MIMIC-DI (see Table 1). The tative and qualitative evaluation, we also included
+Cleaned dataset contains the same patient sum- the Longformer Encoder-Decoder (LED), which has
+maries with annotated hallucinations manually re- shown good performance in medical summarization
+placed or removed. We used the Original and (Cai et al., 2022; Adams et al., 2022). Further deCleaned datasets to test the data-centric hallucina- tails on parameter tuning for LED and Llama 2, and
+tion reduction approach (see Section 4.4). For the prompt tuning for GPT-4, are given in Appendices C
+Cleaned & Improved data, we further manually cor- and D.
+3.2. Hallucination Datasets
+
+342
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+• LED: The Longformer Encoder-Decoder was
+used as a baseline model (Beltagy et al., 2020).1
+The LED model was initialized by BART (Lewis
+et al., 2020) and can process 16K tokens. BART
+can only handle 1K tokens, which was insufficient. For training, we used full fine-tuning
+on 80% of MIMIC-IV-Note-Ext-DI-BHC(-Anno).
+The datasets with 100 examples were to small.
+• Llama: Llama 2 (Touvron et al., 2023) has
+shown promising performance on clinical text
+summarization (Van Veen et al., 2024), and we
+used the versions with 7B and 70B parameters.2 We always used 100 training examples for
+parameter-efficient fine-tuning with LoRA (Hu
+et al., 2021) and loaded the models in 8-bit to
+reduce the memory usage. Due to training time
+constraints, we did not train with all examples.
+• GPT-4: GPT-4 (OpenAI et al., 2023) represents the state of the art in clinical summarization (Van Veen et al., 2024). We accessed the
+model via the Azure OpenAI service with optout for human review of the data to ensure data
+privacy. We tested the model with 5 in-context
+examples (5-shot) or no examples (0-shot).
+4.2. Protocol for Labeling Hallucinations
+We developed a protocol for labeling token-level errors in medical texts based on (Thomson and Reiter,
+2020, 2021).3 Our main focus was to annotate hallucinations in patient summaries. However, we believe
+that with slight modifications, it could be applicable
+to other medical scenarios. We distinguished between
+unsupported, contradicted, and incorrect facts. Since
+most hallucinations were unsupported facts, we further distinguished them into nine subcategories (see
+Figure 2). Thomson and Reiter (2020) considered
+facts from all sources as given; that is, annotators
+could also use information from the internet to check
+facts in the summary. In contrast to that, we treated
+the context (BHC) as the only ground truth about
+the patient. We chose this approach to reduce the
+labeling burden, as annotators could not be expected
+to review all notes and structured information of a
+patient. However, since patient summaries contain
+not only patient-specific information, we did allow
+1. Huggingface models allenai/led-{base/large}-16384
+2. Huggingface models meta-llama/Llama-2-{7,70}b-hf
+3. See the Word document on GitHub: https://github.com/
+ehudreiter/accuracySharedTask/blob/main/example_
+exercise/Example_Annotation_Exercise.docx
+
+general medical knowledge and advice even if not explicitly provided in the context (e.g., “Please take
+your medications as prescribed”). Clarifications that
+arose during the annotation process were added to the
+protocol. The final labeling protocol can be found in
+Appendix G.
+4.3. Hallucinations in MIMIC and Generated
+Patient Summaries
+We used our developed protocol to annotate hallucinations in 100 doctor-written MIMIC summaries (Hallucinations-MIMIC-DI) and 100 LLMgenerated summaries (Hallucinations-GeneratedDI). It is important to note that “hallucinations” in
+doctor-written summaries are common in healthcare
+practice and usually should not be regarded as errors. Doctors may include information in the summary that was never documented, that was documented outside the considered context (in our case,
+only the BHC), or that was altered just prior to discharge. In this work, we considered the MIMIC data
+from a machine learning perspective and analyzed the
+effect of hallucinations in the training data on LLMs.
+The labeling was carried out by two German medical students in their sixth year. They had completed their second state examination (USMLE Step
+2 equivalent) and were working in the hospital. We
+utilized MedTator for annotation (He et al., 2022).
+For annotator training, we used twelve examples.
+Two examples were used to familiarize with the task
+and two times five examples were labeled separately
+and discussed for training. For the final labeling, the
+annotators worked independently and reached a consensus through discussion. To quantify the variability
+of the annotation, we determined manual and automatic statistics for agreement (see Appendix B).
+4.4. Data-Centric Hallucination Reduction
+We evaluated whether manually removing hallucinations from the training data can reduce hallucinations
+of LLMs. To this end, we tested Llama 70B finetuned on 100 examples and GPT-4 5-shot prompted
+with 5 random examples from the Original and the
+hallucination-free Cleaned data. We also included
+GPT-4 0-shot, which did not require any training
+data. Figure 11 contains examples for all five models. Due to limited manual annotation capabilities,
+no further models were included in this analysis. To
+determine the number of generated hallucinations, we
+
+343
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Brief Hospital Course: Mrs. ___ is a ___ female w/ PMH of CAD, HTN, HLD, DMII (on Metformin) who presented to the ED
+with severe dyspnea and chest pain. ___ was admitted for acute on chronic diastolic heart failure in the setting of
+PNA. ACTIVE ISSUES: # Acute on chronic diastolic heart failure: ECG in ED unremarkable w/out ST-T wave abnormalities,
+heart enzymes x2 ruled out acute myocardial damage, exacerbation likely in the setting of PNA. Patient reported
+dietary change w/ increased salt intake that could have caused this. Diuresed with lasix gtt.
+
+Bilanced negative
+
+daily (max. ___ L). Sx improved with diuresis. #Pneumonia: Developed productive cough and new O2 requirement, most
+likely CAP, CXR showed new LLL infiltrate. Started on IV CTX and azithromycin to complete a 5 day course (held home
+atorvastatin in the setting of azithromycin). Fever resolved on HD#1. Remained afebrile for entire admission.
+Significantly improved and was discharged on HD#5. # T2DM: Serum glc slightly elevated on admission. ___ suggested to
+increase Metformin as outpatient (Dr. ___). #Hyponatremia: hypervolemic hyponatremia in setting of DHF. Resolved with
+lasix. # HTN. Normotensive during admission. Continued home lisinopril and metoprolol. TRANSITIONAL ISSUES: Please
+follow-up with PCP to adjust DM medications.
+Patient Summary:
+You were admitted to the Acute Care Service with shortness of breath and chest pain. A heart attack was unlikely, but
+we performed several tests and ruled out acute damage to your heart. We performed an echocardiography and found a
+worsening of your heart failure. This was likely due to a pneumonia of your right lung which we found on a chest xray. We treated you with diuretics for your edema and you were started on two antibiotics for ___ pneumonia. You
+significantly improved during the second day in the hospital. You had a problem with your electrolytes which resolved
+with diuresis. Your high blood pressure was treated with your home medications. Your high blood pressure was treated
+with your home medications. We noticed an increased blood sugar up to 220 and we informed your PCP. We suggest
+increasing your Metformin to 1000 mg. You were discharged to your assisted living facility.
+
+condition unsupported
+
+medication unsupported
+
+location unsupported
+
+name unsupported
+
+other unsupported
+
+procedure unsupported
+
+time unsupported
+
+number unsupported
+
+word unsupported
+
+contradicted fact
+
+incorrect fact
+
+Figure 2: A synthetic MIMIC example labeled with the developed annotation protocol for hallucinations.
+The protocol was adapted from Thomson and Reiter (2020) and we used eleven different labels.
+
+chose 20 random contexts from MIMIC-IV-Note-ExtDI-BHC-Anno and generated summaries with each of
+the five models. We annotated the resulting 100 summaries with our protocol yielding the hallucination
+dataset Hallucinations-Generated-DI. We also determined the amount of missing key facts and medical
+jargon using the annotation procedures of the qualitative evaluation (see Appendix F). The summaries
+for each context were permuted during the annotation process to prevent model identification.
+
+each for validation and testing from the remaining
+20% of the held-out data.
+To evaluate lexical overlap, we used the ROUGE
+F1 score (Lin, 2004).
+For similarity based on
+contextual embeddings, we reported BERTScore
+(Zhang et al., 2020a) for the default roberta-large
+(BERTScore) and microsoft/deberta-large-mnli
+(DeBERT) as recommended by the authors.4 We did
+not utilize medical embeddings since the summaries
+should be written in layperson language. Lastly, we
+determined the SARI score for text simplification (Xu
+et al., 2016) and the number of generated words.
+
+4.5. Quantitative Evaluation
+We evaluated the performance of all models to compare them to existing work. We used the MIMIC-IVNote-Ext-DI-BHC dataset, which contains 100,175
+context-summary pairs. For training, we used 80,140
+examples (80% of the data) for LED, 100 examples
+for Llama, and 5 examples for GPT-4 5-shot. We performed parameter and prompt tuning for all models
+(see Appendices C and D) and used 100 examples
+
+4.6. Qualitative Evaluation
+We evaluated the quality of patient summaries generated by LLMs aligned with the highest quality data
+(Cleaned & Improved). Llama 70B was fine-tuned
+on 100 examples and GPT-4 5-shot was prompted
+with 5 random examples. We also included the
+
+344
+
+4. See readme: https://github.com/Tiiiger/bert_score
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Model (training data)
+
+Hallucinations↓
+
+Mean (SD)
+Missing Key Facts↓
+Medical Jargon↓
+
+Length (Words)
+
+Llama 70B (100 Original ex.)
+Llama 70B (100 Cleaned ex.)
+
+2.60 (2.39)
+1.55 (1.99)
+
+3.77 (1.33)
+3.73 (1.45)
+
+1.05 (0.84)
+1.68 (1.23)
+
+97.90 (36.73)
+96.20 (31.82)
+
+GPT-4 5-shot (5 Original ex.)
+GPT-4 5-shot (5 Cleaned ex.)
+
+0.70 (0.86)
+0.40 (0.75)
+
+0.93 (0.80)
+0.97 (0.80)
+
+1.07 (0.99)
+1.25 (1.18)
+
+151.10 (19.42)
+158.80 (23.27)
+
+GPT-4 0-shot (none)
+
+0.45 (0.60)
+
+0.82 (0.61)
+
+0.70 (1.03)
+
+165.05 (22.75)
+
+Table 2: Results for data-centric hallucination-reduction showing mean number of hallucinations, missing key
+facts, medical jargon, and words generated by Llama 70B and GPT-4 5-shot trained or prompted on
+Original versus Cleaned summaries (hallucinations removed) and GPT-4 0-shot. Training Llama
+using hallucination-free summaries shows a strong hallucination reduction while keeping key facts.
+
+Dataset /
+Model (training data)
+
+Number of Annotated Hallucinations per Type
+cond. proc. medic. time loc. numb. name word other contrad. incorr. Total
+
+Hallucinations-MIMIC-DI
+
+52
+
+19
+
+34
+
+35
+
+29
+
+7
+
+18
+
+76
+
+1
+
+15
+
+0
+
+286
+
+Hallucinations-Generated-DI
+
+27
+
+4
+
+10
+
+2
+
+12
+
+3
+
+5
+
+44
+
+0
+
+7
+
+0
+
+114
+
+Llama 70B (100 Original ex.)
+Llama 70B (100 Cleaned ex.)
+
+16
+7
+
+2
+2
+
+9
+1
+
+1
+1
+
+4
+5
+
+3
+0
+
+3
+1
+
+11
+10
+
+0
+0
+
+3
+4
+
+0
+0
+
+52
+31
+
+GPT-4 5-shot (5 Original ex.)
+GPT-4 5-shot (5 Cleaned ex.)
+
+2
+1
+
+0
+0
+
+0
+0
+
+0
+0
+
+1
+2
+
+0
+0
+
+1
+0
+
+10
+5
+
+0
+0
+
+0
+0
+
+0
+0
+
+14
+8
+
+GPT-4 0-shot (none)
+
+1
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+8
+
+0
+
+0
+
+0
+
+9
+
+Table 3: The first row shows the labeling results for 100 MIMIC summaries for which we found 286 hallucinations. The subsequent rows present the category breakdown for different types of hallucinations
+annotated in 20 summaries. It corresponds to the data in the Hallucinations↓ column in Table 2.
+
+original MIMIC summaries, LED-large fine-tuned
+on 20,942 MIMIC-IV-Note-Ext-DI-BHC-Anno examples, and GPT-4 0-shot (see examples in Figure 12).
+We generated summaries for the same 20 contexts
+from MIMIC-IV-Note-Ext-DI-BHC-Anno used for the
+hallucination-reduction experiments to reduce the annotation workload. Ratings were performed by the
+same two medical experts and the summaries were
+again permuted to prevent model identification. The
+annotators completed two training examples, and no
+agreement was sought as this was considered a subjective task. We combined both ratings for our analysis.
+
+text and summary), Consistency (labeling hallucinations using our protocol), and Simplification (labeling
+medical jargon) and defined the meaning of each Likert rating based on these subtasks. Additional details
+on the subtasks and annotator instructions are given
+in Appendix F and Figures 8 and 9.
+4.7. Automatic Hallucination Detection
+
+We performed an evaluation of automated hallucination detection on two annotated datasets: 100 doctorwritten summaries (Hallucinations-MIMIC-DI) and
+100 LLM-generated summaries (HallucinationsWe evaluated the summaries for Relevance, Consis- Generated-DI). This method could serve for the autency, Fluency, and Coherence on a 1-5 Likert scale tomatic cleaning of training data or post-hoc editing
+(Fabbri et al., 2021) following previous work on med- to improve faithfulness. We framed the task of autoical summarization (Adams et al., 2022). We added matic hallucination detection as a span classification
+the dimension Simplification. To obtain more reliable problem. Given a context C and a summary S, our
+results, we defined subtasks to be performed before objective was to identify all spans of hallucinations
+rating Relevance (subtask: labeling key facts in con- within the summary, denoted as HS = {H1 , ..., Hn }.
+345
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Brief Hospital Course: Mrs. ___ is a ___ female w/ PMH of CAD, HTN, HLD, DMII (on Metformin) who presented to [...]
+Llama 70B trained with 100 original examples:
+You were admitted for shortness of breath and were found to have a mild pneumonia. You were started on antibiotics.
+You were also found to have some fluid build up in your lungs from heart failure. We gave you medications to help
+remove this fluid and your symptoms improved. You should continue the antibiotics you were started on for a total of
+5 days. You should also increase your Metformin to 1000mg twice a day. You should also follow-up with your primary
+care physician to adjust your other diabetes medications.
+Llama 70B trained with 100 cleaned examples:
+You were admitted to the hospital for shortness of breath and chest pain. You were found to have a worsening of your
+heart failure in the setting of pneumonia. You were treated with antibiotics and diuretics. You were also found to
+have a low sodium level in your blood, likely due to the fluid retention. Your sodium level normalized after you were
+given diuretics. You were discharged on oral antibiotics for your pneumonia. You should continue taking your
+medications as you were before admission. Please follow-up with your primary care doctor to adjust your diabetes
+medications.
+
+Figure 3: Patient summaries generated by Llama 70B fine-tuned on 100 Original and 100 Cleaned examples
+given the synthetic context in Figure 2 with annotated hallucinations according to our protocol.
+These are two of the five models included in the data-centric hallucination reduction experiments.
+
+Each hallucination span Hi is defined by a tuple 5. Results
+(s, e, c), consisting of a start token, an end token, and
+a class (see Figure 2). We also explored class-agnostic 5.1. Hallucinations in MIMIC and Generated
+Patient Summaries
+hallucination detection without the class c.
+Two medical experts labeled 100 doctor-written paWe used a class-agnostic approach based on med- tient summaries (Hallucinations-MIMIC-DI) and
+ical entities as a baseline (Cai et al., 2022; Adams found 286 hallucinations (see Table 3). The most
+et al., 2022). For entity recognition and linking, we prevalent label was the generic word unsupported
+utilized MedCat (Kraljevic et al., 2021) with UMLS (n=76) followed by condition unsupported (n=52),
+semantic types from Adams et al. (2021). All enti- and time unsupported (n=35). Hence, there is a sigties that appeared in the summary but not in the nificant amount of unsupported data in MIMIC when
+context were considered hallucinations. We further using the BHC as context. For the 100 generated paenhanced this approach with SapBERT embeddings tient summaries (Hallucinations-Generated-DI),
+(Liu et al., 2021) to determine equivalent entities they found a total of 114 hallucinations and word un(Adams et al., 2023). The equivalence threshold supported was the most common label (see Table 3).
+for similarity was a hyperparameter for these meth- Agreement statistics show that annotators agreed on
+ods and we determined its value based on ten ad- 1.55 of 2.86 annotations for MIMIC and 0.67 of 1.14
+ditional examples labeled during annotator train- annotations for the generated summaries (see Table
+ing. We tested GPT-4 for class-agnostic and class- 8) emphasizing some variability during labeling. The
+aware hallucination detection. We designed a suitable annotation of MIMIC summaries took 30 hours for
+prompt based on the aforementioned ten examples la- each expert and 6 hours for the agreement. For the
+beled during annotator training and utilized varying generated summaries, annotation took less time, with
+numbers of in-context examples and chain-of-thought 20 hours for labeling and 4 hours for the agreement,
+(COT) prompting, detailed in Appendix E. Since our since there were only 20 different patient contexts.
+prompt design is based on the annotation protocol for
+general medical text, this approach might also prove
+5.2. Data-Centric Hallucination Reduction
+useful for texts other than patient summaries. Evaluation was performed using partial matching with the The results for GPT-4 5-shot prompted with Orignervaluate package (Segura-Bedmar et al., 2013).
+inal data were significantly better than for Llama
+346
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Model (training data)
+
+R-1↑
+
+R-2↑
+
+R-3↑
+
+R-4↑
+
+R-L↑
+
+BERT↑
+
+DeBERT↑
+
+SARI↑
+
+Words
+
+4.92
+2.24
+2.74
+1.12
+1.49
+
+29.89
+24.73
+26.19
+21.98
+21.49
+
+88.11
+85.68
+86.30
+86.67
+86.37
+
+64.12
+60.23
+61.89
+61.30
+60.75
+
+46.71
+44.12
+45.16
+42.88
+42.04
+
+76.99
+73.13
+76.90
+131.86
+165.78
+
+MIMIC-IV-Note-Ext-DI-BHC (100,175 examples)
+LED-large (80,140 ex.)
+Llama 2 7B (100 ex.)
+Llama 2 70B (100 ex.)
+GPT-4 5-shot (5 ex.)
+GPT-4 0-shot (none)
+
+43.82
+38.36
+40.58
+38.80
+38.26
+
+17.33
+12.66
+14.31
+10.78
+10.81
+
+8.85
+5.13
+6.09
+3.55
+3.70
+
+Table 4: Quantitative evaluation of patient summary generation on MIMIC-IV-Note-Ext-DI-BHC dataset.
+We used the ROUGE F1-score for n-grams (R-n) and the longest common subsequence (R-L),
+BERTScore using roberta-large (BERT) and deberta-large-mnli (DeBERT), the SARI score,
+and the number of generated words. Additional performance results can be found in Table 11.
+
+70B fine-tuned on Original with 0.70 versus 2.60
+hallucinations and 0.93 versus 3.77 missing key facts
+per summary (see Table 2). Data-centric hallucination reduction (training on Cleaned), showed a substantial effect for Llama 70B, reducing hallucinations
+from 2.60 to 1.55 per summary while maintaining the
+same number of key facts. Figure 3 displays generations of both models with hallucination annotations.
+Llama 70B trained on Original introduced unsupported adjectives “mild” and “other”, as well as an
+unsupported metformin dosage. Both models incorrectly recommended continuing antibiotics at home.
+Apart from “mild”, all hallucinations can be considered reasonable advice and are commonly found in
+patient summaries. For GPT-4 5-shot, the difference
+of 0.70 (Original) to 0.40 (Cleaned) hallucinations
+is only marginal, while retaining key facts. The use
+of medical jargon and the length of the generations
+did not change substantially. GPT-4 0-shot exhibited a few hallucinations (0.45) and the lowest number of missing key facts (0.82) and medical jargon
+(0.70), although the generations were longer than for
+5-shot. Table 3 shows the types of hallucination for
+each model. While Llama 70B occasionally generated
+unsupported conditions and locations, this was rare
+for GPT-4. The hallucinations produced by GPT-4
+were mostly labeled as unsupported word.
+
+which is much less for Llama and GPT-4 5-shot.
+Notably, GPT-4 0-shot achieved considerable performance even without using any training data.
+
+5.4. Qualitative Evaluation
+
+The qualitative results are visualized in Figure 4.
+The Consistency results for doctor-written (MIMIC)
+summaries should be interpreted with caution because these summaries were artificially considered
+only with the restricted context of the BHC. The
+original MIMIC examples, LED-large trained on all
+data, and Llama 70B fine-tuned on 100 Cleaned &
+Improved examples showed similar results. For Relevance, around half of the examples received a rating
+of two or higher, indicating that at most three key
+points were missing. The Simplification, Fluency, and
+Coherence all received a median rating of four for all
+three approaches. Llama 70B performed better for
+Consistency with a median rating of four compared
+to three for the original MIMIC and LED-large summaries. GPT-4 performed significantly better across
+all five dimensions. The difference in Consistency
+compared to Llama 70B is in line with the lower hallucination rate of GPT-4 observed earlier (see Table 2).
+Also, GPT-4 achieved high Relevance with a median
+5.3. Quantitative Evaluation
+of four, indicating one missing key fact per summary,
+Table 4 contains the performance evaluation on the and a median of five for simplification, fluency, and
+MIMIC-IV-Note-Ext-DI-BHC dataset. Overall, the coherence. There was only a slight difference between
+LED model performed the best, followed by Llama GPT-4 5-shot and GPT-4 0-shot. GPT-4 5-shot perand GPT-4. Only for BERT and DeBERT, Llama formed better for Consistency, i.e., including all key
+and GPT-4 achieved similar performance. This be- facts, while GPT-4 0-shot performed better for Relehavior is consistent with the amount of training data, vance and Simplification.
+347
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Relevance
+(missing key facts)
+
+MIMIC
+LED-large
+Llama 70B
+GPT 5-shot
+GPT 0-shot
+0
+
+0.25
+
+0.5
+
+0.75
+
+Consistency
+(hallucinations)
+
+1 0
+
+0.25
+
+Strongly disagree (1)
+
+0.5
+
+0.75
+
+Simplification
+(medical jargon)
+
+1 0
+
+Disagree (2)
+
+0.25
+
+0.5
+
+0.75
+
+Fluency
+(sentence level)
+
+1 0
+
+0.25
+
+Neither agree nor disagree (3)
+
+0.5
+
+0.75
+
+Agree (4)
+
+Coherence
+(summary level)
+
+1 0
+
+0.25
+
+0.5
+
+0.75
+
+1
+
+Strongly agree (5)
+
+Figure 4: Qualitative evaluation of Llama 70B fine-tuned on all 100 examples of Cleaned & Improved and
+GPT-4 5-shot prompted with 5 random examples of Cleaned & Improved. We compared them to
+the original MIMIC summaries, LED-large fine-tuned on MIMIC-IV-Note-Ext-DI-BHC-Anno, and
+GPT-4 0-shot. Two medical experts evaluated 20 summaries from each of the five models.
+
+Model
+
+6. Discussion
+
+H.-MIMIC-DI H.-Generated-DI
+Prec. Rec. F1 Prec. Rec.
+F1
+
+Class-agnostic recognition
+MedCat
+MedCat + Em.
+GPT-4 (class-ag.)
+GPT-4 (class-aw.)
+
+7.4
+8.0
+23.3
+20.0
+
+16.4 10.2
+16.1 10.7
+16.4 19.3
+20.8 20.4
+
+3.4
+3.9
+14.7
+13.0
+
+20.3
+19.9
+16.7
+21.5
+
+5.8
+6.5
+15.6
+16.2
+
+13.4
+
+7.9
+
+9.9
+
+Class-aware recognition (11 classes)
+GPT-4 (no-cot)
+
+21.3
+
+4.5
+
+7.5
+
+Table 5: Results of automatic hallucination detection
+on 100 doctor-written (H.-MIMIC-DI) and
+100 LLM-generated (H.-Generated-DI) patient summaries. GPT-4 clearly outperformed the baselines using medical UMLS
+entities recognized by MedCat.
+
+5.5. Automatic Hallucination Detection
+
+Hallucinations in patient summaries are diverse and
+complex. We introduced a rigorous protocol for annotating hallucinations and considered a simplified experimental setting with the BHC as limited context.
+Still, it took medical experts between 12 and 18 minutes to annotate a single summary. For the generated
+patient summaries, only 59% of all annotations were
+identified by both annotators, with 56% of these being of the same type (see Table 8). Additionally, 39%
+of all hallucinations were classified as unsupported
+word which typically indicates more complex hallucination structures. The annotation of doctor-written
+(MIMIC) summaries yielded similar results, aligning with previous findings on consultation notes that
+reported medium inter-annotator agreement among
+clinicians (Moramarco et al., 2022). We attempted
+to automate hallucination detection based on our annotations. We tested UMLS concepts recognized by
+MedCat combined with embeddings, which showed
+very poor results on our datasets. Many annotations
+spans did not align with medical concepts, suggesting that medical entity-based approaches may be insufficient (Cai et al., 2022; Adams et al., 2022). Although GPT-4 demonstrated significantly better performance, we consider this only as an initial step.
+These results emphasize the importance of thorough
+evaluation with human domain experts and highlight
+the challenges for reliable hallucination detection in
+the healthcare domain.
+
+Using medical entities extracted by MedCat for classagnostic hallucination detection performed poorly
+with an F1-Score of 10.2 for doctor-written (MIMIC)
+and 5.8 for generated summaries (see Table 5).
+Adding medical embeddings (MedCat + Em.) only
+resulted in marginal improvements. GPT-4 clearly
+outperformed this baseline on both datasets. The
+best prompting strategy used a class-aware prompt
+(detailed in Appendix E). GPT-4 exhibited low recall in class-aware hallucination detection highlightThe data used for LLM alignment is crucial for
+ing the need for improved methods for automatic
+hallucination detection. Additional results for class- generating faithful and high-quality patient summaries. In a study on medical summarization, Adams
+specific recall are presented in Table 13.
+348
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+et al. (2022) demonstrated that automatic revisions
+of 45,000 training examples improved the hallucination rate and quality. In our work, we focused
+on more sample-efficient LLMs, where 100 humancurated training examples were sufficient. We evaluated Llama 2 and GPT-4 for data-centric hallucination reduction, as well as for quantitative and qualitative performance. Consistent with previous studies,
+we found that quantitative metrics do not correlate
+well with the hallucination rate (Moramarco et al.,
+2022; Adams et al., 2023) and quality (Van Veen
+et al., 2024). Quantitatively, LED-large outperformed both Llama 2 and GPT-4, but the ranking
+reversed when assessing quality, including hallucinations (Consistency). This behavior can be attributed
+to the qualitative shortcomings of the doctor-written
+(MIMIC) summaries. LED-large, which was extensively trained, most faithfully reproduced MIMIC, as
+confirmed by similar qualitative results. Llama 2,
+fine-tuned on 100 examples, showed moderate alignment to MIMIC, placing it midway in both quantitative and qualitative evaluations. The fine-tuning
+made Llama 2 more susceptible to data-centric hallucination reduction, which had a strong effect. GPT-4
+5-shot, aligned with on only five examples, largely
+retained its pre-trained summarization style and was
+less susceptible to data-centric hallucination reduction. However, we observed that alignment with only
+five examples already led to slightly lower Relevance,
+Simplification, and length compared to GPT-4 without any examples (0-shot). Hence, this study emphasizes the importance of high-quality training data for
+fine-tuning and in-context learning of LLMs.
+
+summarization style, resulting in higher quality summaries that could potentially lead to more effective
+interventions (Haver et al., 2024; Artsi et al., 2024).
+Further enhancements could involve adaptive methods (Fok et al., 2023) to cater to different information
+needs and interactive approaches. Ultimately, more
+clinical evidence is necessary to support the use of patient information automatically generated by LLMs.
+This work has limitations. We relied on a single
+dataset for medical notes and focused on patient summaries, limiting the generalizability of our findings.
+We only considered the reduced context of the BHC,
+which likely led to an overestimation of hallucinations
+in doctor-written summaries. The labeling of hallucinations was conducted by only two annotators,
+leading to variability in the labels. The qualitative
+ratings were obtained from medical experts. Instead,
+it would have been preferable to include the patients’
+perspectives. Lastly, we included only two LLMs in
+our data-centric hallucination-reduction experiments
+and qualitative evaluation due to the expensive annotation required by medical experts.
+
+7. Conclusion
+LLMs are sensitive to fine-tuning or prompting examples. We have demonstrated that data-centric interventions by domain experts can reduce hallucinations
+and improve the quality of generation. Specifically,
+GPT-4 showed few hallucinations and omitted key
+facts while receiving high-quality ratings making it a
+strong model for generating patient summaries. We
+have developed a protocol for labeling unsupported
+evidence in medical texts and have released two annotated datasets consisting of 100 doctor-written and
+100 LLM-generated patient summaries. Future work
+should explore different summary formats and the application of other LLMs. The provided datasets could
+serve as a valuable resource for the advancement and
+assessment of automatic hallucination metrics. A
+crucial direction for future research is the collection
+of more clinical evidence for useful interventions to
+enhance patient health literacy.
+
+The clinical evidence regarding the effectiveness of
+high-quality patient summaries is not clear. Becker
+et al. (2021) conducted a systematic review of patient education interventions, which included 60 randomized controlled trials (RCTs). Out of these trials, only five primarily relied on text (Baker et al.,
+1991; Hayes, 1998; Giuse et al., 2012; Lin et al., 2014;
+Doyle et al., 2020). Closest to this work, Lin et al.
+(2014) evaluated manually created patient-directed
+discharge letters based on a template, which were
+discussed during discharge. They found that patient understanding improved in four domains after
+three and six months, but there was no significant
+reduction in 6-month readmission. In this study, we Acknowledgments
+focused on generating patient after-visit summaries
+that have only weak evidence for usefulness (Pathak Experiments were performed on the HPC cluster
+et al., 2020). We demonstrated that GPT-4, particu- PALMA II of the University of Münster, subsidised
+larly in the 0-shot setting, deviated from the original by the DFG (INST 211/667-1).
+349
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+References
+
+patients.
+British Journal of Clinical Pharmacology, 31(5):525–531, 1991.
+ISSN 13652125. doi: 10.1111/j.1365-2125.1991.tb05574.x.
+URL https://onlinelibrary.wiley.com/doi/
+abs/10.1111/j.1365-2125.1991.tb05574.x.
+
+Griffin Adams, Emily Alsentzer, Mert Ketenci, Jason
+Zucker, and Noémie Elhadad. What’s in a Summary? Laying the Groundwork for Advances in
+Hospital-Course Summarization. In Proceedings of
+the 2021 Conference of the North American Chap- Christoph Becker, Samuel Zumbrunn, Kathater of the Association for Computational Linguisrina Beck, Alessia Vincent, Nina Loretz, Jonas
+tics: Human Language Technologies, pages 4794–
+Müller, Simon A. Amacher, Rainer Schaefert,
+4811, Online, June 2021. Association for Comand Sabina Hunziker.
+Interventions to Imputational Linguistics. doi: 10.18653/v1/2021.
+prove Communication at Hospital Discharge and
+naacl-main.382. URL https://aclanthology.
+Rates of Readmission: A Systematic Review
+org/2021.naacl-main.382.
+and Meta-analysis.
+JAMA Network Open, 4
+(8):e2119346, August 2021.
+ISSN 2574-3805.
+Griffin Adams, Han-Chin Shing, Qing Sun, Christodoi:
+10.1001/jamanetworkopen.2021.19346.
+pher Winestock, Kathleen McKeown, and Noémie
+URL
+https://jamanetwork.com/journals/
+Elhadad. Learning to Revise References for Faithjamanetworkopen/fullarticle/2783547.
+ful Summarization.
+In Yoav Goldberg, Zornitsa Kozareva, and Yue Zhang, editors, Find- Iz Beltagy, Matthew E. Peters, and Arman Cohan.
+ings of the Association for Computational LinguisLongformer: The Long-Document Transformer,
+tics: EMNLP 2022, pages 4009–4027, Abu Dhabi,
+December 2020. URL http://arxiv.org/abs/
+United Arab Emirates, December 2022. Associa2004.05150. arXiv:2004.05150 [cs].
+tion for Computational Linguistics. doi: 10.18653/
+v1/2022.findings-emnlp.296.
+URL https:// Lukas Biewald. Experiment tracking with weights
+aclanthology.org/2022.findings-emnlp.296.
+and biases. Software available from wandb. com, 2:
+233, 2020.
+Griffin Adams, Jason Zucker, and Noémie Elhadad. A Meta-Evaluation of Faithfulness Met- Pengshan Cai, Fei Liu, Adarsha Bajracharya, Joe
+rics for Long-Form Hospital-Course SummarizaSills, Alok Kapoor, Weisong Liu, Dan Berlowitz,
+tion, March 2023. URL http://arxiv.org/abs/
+David Levy, Richeek Pradhan, and Hong Yu.
+2303.03948. arXiv:2303.03948 [cs].
+Generation of Patient After-Visit Summaries to
+Support Physicians. In Proceedings of the 29th
+Rahul Aralikatte, Shashi Narayan, Joshua Maynez,
+International Conference on Computational LinSascha Rothe, and Ryan McDonald. Focus Atguistics, pages 6234–6247, Gyeongju, Republic
+tention: Promoting Faithfulness and Diversity in
+of Korea, October 2022. International CommitSummarization. In Proceedings of the 59th Antee on Computational Linguistics. URL https:
+nual Meeting of the Association for Computational
+//aclanthology.org/2022.coling-1.544.
+Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume Shuyang Cao and Lu Wang. CLIFF: Contrastive
+1: Long Papers), pages 6078–6095, Online, August
+Learning for Improving Faithfulness and Factu2021. Association for Computational Linguistics.
+ality in Abstractive Summarization. In Proceeddoi: 10.18653/v1/2021.acl-long.474. URL https:
+ings of the 2021 Conference on Empirical Meth//aclanthology.org/2021.acl-long.474.
+ods in Natural Language Processing, pages 6633–
+6649, Online and Punta Cana, Dominican RepubYaara Artsi, Vera Sorin, Eli Konen, Benjamin S.
+lic, November 2021. Association for Computational
+Glicksberg, Girish Nadkarni, and Eyal Klang.
+Linguistics. doi: 10.18653/v1/2021.emnlp-main.
+Large language models in simplifying radio532.
+URL https://aclanthology.org/2021.
+logical reports: systematic review.
+preprint,
+emnlp-main.532.
+Radiology and Imaging, January 2024. URL
+http://medrxiv.org/lookup/doi/10.1101/
+Ziqiang Cao, Furu Wei, Wenjie Li, and Sujian Li.
+2024.01.05.24300884.
+Faithful to the original: fact-aware neural abstracD. Baker, De Roberts, Rg Newcombe, and Ka Fox.
+tive summarization. In Proceedings of the ThirtyEvaluation of drug information for cardiology
+Second AAAI Conference on Artificial Intelligence
+350
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+and Thirtieth Innovative Applications of Artificial
+Intelligence Conference and Eighth AAAI Symposium on Educational Advances in Artificial Intelligence, AAAI’18/IAAI’18/EAAI’18, pages 4784–
+4791, New Orleans, Louisiana, USA, February
+2018. AAAI Press. ISBN 978-1-57735-800-8.
+
+Mark, Joseph E. Mietus, George B. Moody, ChungKang Peng, and H. Eugene Stanley. PhysioBank,
+PhysioToolkit, and PhysioNet: Components of a
+New Research Resource for Complex Physiologic
+Signals. Circulation, 101(23), June 2000. ISSN
+0009-7322, 1524-4539. doi: 10.1161/01.CIR.101.23.
+e215. URL https://www.ahajournals.org/doi/
+10.1161/01.CIR.101.23.e215.
+
+Sarah K Doyle, James C Rippey, Angela Jacques,
+Alethea M Rea, Bronwyn N Kaiser, Suzanne M
+Miller, and Matthew HR Anstey.
+Effect of Hana L. Haver, Anuj K. Gupta, Emily B. Ampersonalised, mobile-accessible discharge instrucbinder, Manisha Bahl, Eniola T. Oluyemi, Jean
+tions for patients leaving the emergency departJeudy, and Paul H. Yi. Evaluating the Use
+ment: A randomised controlled trial. Emerof ChatGPT to Accurately Simplify Patientgency Medicine Australasia, 32(6):967–973, 2020.
+centered Information about Breast Cancer PrevenISSN 1742-6723. doi: 10.1111/1742-6723.13516.
+tion and Screening. Radiology: Imaging Cancer,
+URL https://onlinelibrary.wiley.com/doi/
+6(2):e230086, March 2024. doi: 10.1148/rycan.
+abs/10.1111/1742-6723.13516.
+230086. URL https://pubs.rsna.org/doi/abs/
+10.1148/rycan.230086. Publisher: Radiological
+Alexander R. Fabbri, Wojciech Kryściński, Bryan
+Society of North America.
+McCann, Caiming Xiong, Richard Socher, and
+Dragomir Radev. SummEval: Re-evaluating Summarization Evaluation, February 2021. URL http: Karen S. Hayes. Randomized Trial of GeragogyBased Medication Instruction in the Emergency
+//arxiv.org/abs/2007.12626. arXiv:2007.12626
+Department.
+Nursing Research, 47(4):211,
+[cs].
+August 1998. ISSN 0029-6562. URL https:
+Alex Federman, Erin Sarzynski, Cindy Brach,
+//journals.lww.com/nursingresearchonline/
+Paul Francaviglia, Jessica Jacques, Lina Janfulltext/1998/07000/randomized_trial_of_
+dorf, Angela Sanchez Munoz, Michael Wolf, and
+geragogy_based_medication.6.aspx.
+Joseph Kannry. Challenges optimizing the after visit summary.
+International journal of Huan He, Sunyang Fu, Liwei Wang, Sijia Liu,
+Andrew Wen, and Hongfang Liu.
+MedTamedical informatics, 120:14–19, December 2018.
+tor: a serverless annotation tool for corpus
+ISSN 1386-5056. doi: 10.1016/j.ijmedinf.2018.09.
+development. Bioinformatics, 38(6):1776–1778,
+009. URL https://www.ncbi.nlm.nih.gov/pmc/
+March 2022. ISSN 1367-4803. doi: 10.1093/
+articles/PMC6326571/.
+bioinformatics/btab880. URL https://doi.org/
+Raymond Fok, Joseph Chee Chang, Tal August,
+10.1093/bioinformatics/btab880.
+Amy X. Zhang, and Daniel S. Weld.
+Qlarify: Bridging Scholarly Abstracts and Papers Karl Moritz Hermann, Tomas Kocisky, Edwith Recursively Expandable Summaries, October
+ward Grefenstette, Lasse Espeholt, Will Kay,
+2023. URL http://arxiv.org/abs/2310.07581.
+Mustafa Suleyman, and Phil Blunsom. TeacharXiv:2310.07581 [cs].
+ing Machines to Read and Comprehend.
+In
+Advances
+in
+Neural
+Information
+ProcessNunzia B. Giuse, Taneya Y. Koonce, Alan B.
+ing Systems, volume 28. Curran Associates,
+Storrow, Sheila V. Kusnoor, and Fei Ye. UsInc., 2015.
+URL https://proceedings.
+ing Health Literacy and Learning Style Preferneurips.cc/paper_files/paper/2015/hash/
+ences to Optimize the Delivery of Health Inafdec7005cc9f14302cd0474fd0f3c96-Abstract.
+formation. Journal of Health Communication,
+html.
+17(sup3):122–140, October 2012.
+ISSN 10810730, 1087-0415. doi: 10.1080/10810730.2012.
+Leora I. Horwitz, John P. Moriarty, Christine
+712610.
+URL http://www.tandfonline.com/
+Chen, Robert L. Fogerty, Ursula C. Brewster,
+doi/abs/10.1080/10810730.2012.712610.
+Sandhya Kanade, Boback Ziaeian, Grace Y.
+Ary L. Goldberger, Luis A. N. Amaral, Leon Glass,
+Jenq, and Harlan M. Krumholz.
+Quality of
+Jeffrey M. Hausdorff, Plamen Ch. Ivanov, Roger G.
+Discharge Practices and Patient Understanding
+351
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+at an Academic Medical Center. JAMA Inter- Wojciech Kryscinski, Bryan McCann, Caiming
+nal Medicine, August 2013. ISSN 2168-6106.
+Xiong, and Richard Socher. Evaluating the Facdoi: 10.1001/jamainternmed.2013.9318.
+URL
+tual Consistency of Abstractive Text Summahttp://archinte.jamanetwork.com/article.
+rization.
+In Proceedings of the 2020 Conferaspx?doi=10.1001/jamainternmed.2013.9318.
+ence on Empirical Methods in Natural Language
+Processing (EMNLP), pages 9332–9346, Online,
+Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan
+November 2020. Association for Computational
+Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang,
+Linguistics. doi: 10.18653/v1/2020.emnlp-main.
+and Weizhu Chen. LoRA: Low-Rank Adaptation of
+750.
+URL https://aclanthology.org/2020.
+Large Language Models, October 2021. URL http:
+emnlp-main.750.
+//arxiv.org/abs/2106.09685. arXiv:2106.09685
+Mike Lewis, Yinhan Liu, Naman Goyal, Mar[cs].
+jan Ghazvininejad, Abdelrahman Mohamed,
+Yichong Huang, Xiachong Feng, Xiaocheng Feng, and
+Omer Levy, Veselin Stoyanov, and Luke ZettleBing Qin. The Factual Inconsistency Problem in
+moyer. BART: Denoising Sequence-to-Sequence
+Abstractive Text Summarization: A Survey, April
+Pre-training for Natural Language Generation,
+2023. URL http://arxiv.org/abs/2104.14839.
+Translation, and Comprehension. In Dan JuarXiv:2104.14839 [cs].
+rafsky, Joyce Chai, Natalie Schluter, and Joel
+Tetreault, editors, Proceedings of the 58th Annual
+Alistair Johnson, Tom Pollard, Steven Horng,
+Meeting of the Association for Computational
+Leo Anthony Celi, and Roger Mark. MIMIC-IVLinguistics, pages 7871–7880, Online, July 2020.
+Note: Deidentified free-text clinical notes, January
+Association for Computational Linguistics. doi:
+2023. URL https://physionet.org/content/
+10.18653/v1/2020.acl-main.703.
+URL https:
+mimic-iv-note/2.2/.
+//aclanthology.org/2020.acl-main.703.
+Sosena Kebede, Hasan M. Shihab, Zackary D. Berger, Chin-Yew Lin. ROUGE: A Package for Automatic
+Nina G. Shah, Hsin-Chieh Yeh, and Daniel J.
+Evaluation of Summaries. In Text Summarization
+Brotman. Patients’ Understanding of Their HosBranches Out, pages 74–81, Barcelona, Spain, July
+pitalizations and Association With Satisfaction.
+2004. Association for Computational Linguistics.
+JAMA Internal Medicine, 174(10):1698–1700, OcURL https://aclanthology.org/W04-1013.
+tober 2014. ISSN 2168-6106. doi: 10.1001/
+jamainternmed.2014.3765. URL https://doi. R. Lin, R. Gallagher, M. Spinaze, H. Najoumian,
+C. Dennis, R. Clifton-Bligh, and G. Tofler.
+org/10.1001/jamainternmed.2014.3765.
+Effect of a patient-directed discharge letter
+Zeljko Kraljevic, Thomas Searle, Anthony Shek,
+on patient understanding of their hospitalisaLukasz Roguski, Kawsar Noor, Daniel Bean, Aution. Internal Medicine Journal, 44(9):851–857,
+relie Mascio, Leilei Zhu, Amos A. Folarin, An2014.
+ISSN 1445-5994.
+doi: 10.1111/imj.
+gus Roberts, Rebecca Bendayan, Mark P. Richard12482.
+URL https://onlinelibrary.wiley.
+son, Robert Stewart, Anoop D. Shah, Wai Keong
+com/doi/abs/10.1111/imj.12482.
+Wong, Zina Ibrahim, James T. Teo, and Richard
+J. B. Dobson.
+Multi-domain clinical natural Fangyu Liu, Ehsan Shareghi, Zaiqiao Meng, Marco
+Basaldella, and Nigel Collier. Self-Alignment Prelanguage processing with MedCAT: The Meditraining for Biomedical Entity Representations.
+cal Concept Annotation Toolkit. Artificial InIn Kristina Toutanova, Anna Rumshisky, Luke
+telligence in Medicine, 117:102083, July 2021.
+Zettlemoyer, Dilek Hakkani-Tur, Iz Beltagy, Steven
+ISSN 0933-3657.
+doi: 10.1016/j.artmed.2021.
+Bethard, Ryan Cotterell, Tanmoy Chakraborty,
+102083. URL https://www.sciencedirect.com/
+and Yichao Zhou, editors, Proceedings of the 2021
+science/article/pii/S0933365721000762.
+Conference of the North American Chapter of the
+Klaus Krippendorff. Content Analysis: An IntroducAssociation for Computational Linguistics: Hution to Its Methodology. SAGE Publications, May
+man Language Technologies, pages 4228–4238, On2018. ISBN 978-1-5063-9567-8. Google-Books-ID:
+line, June 2021. Association for Computational
+nE1aDwAAQBAJ.
+Linguistics. doi: 10.18653/v1/2021.naacl-main.
+352
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+334.
+URL https://aclanthology.org/2021.
+naacl-main.334.
+Laurens van der Maaten and Geoffrey Hinton. Visualizing Data using t-SNE. Journal of Machine
+Learning Research, 9(86):2579–2605, 2008. ISSN
+1533-7928. URL http://jmlr.org/papers/v9/
+vandermaaten08a.html.
+
+jiao Zhang, Kathleen McKeown, and Bing Xiang. Entity-level Factual Consistency of Abstractive Text Summarization. In Proceedings of the
+16th Conference of the European Chapter of the
+Association for Computational Linguistics: Main
+Volume, pages 2727–2733, Online, April 2021.
+Association for Computational Linguistics. doi:
+10.18653/v1/2021.eacl-main.235. URL https://
+aclanthology.org/2021.eacl-main.235.
+
+Joshua Maynez, Shashi Narayan, Bernd Bohnet, and
+Ryan McDonald. On Faithfulness and Factuality
+in Abstractive Summarization. In Dan Jurafsky, OpenAI, Josh Achiam, Steven Adler, Sandhini
+Agarwal, Lama Ahmad, Ilge Akkaya, FlorenJoyce Chai, Natalie Schluter, and Joel Tetreault,
+cia Leoni Aleman, Diogo Almeida, Janko Aleditors, Proceedings of the 58th Annual Meeting
+tenschmidt, Sam Altman, Shyamal Anadkat, Red
+of the Association for Computational Linguistics,
+Avila, Igor Babuschkin, Suchir Balaji, Valerie Balpages 1906–1919, Online, July 2020. Association
+com, Paul Baltescu, Haiming Bao, Mo Bavarian,
+for Computational Linguistics. doi: 10.18653/v1/
+Jeff Belgum, Irwan Bello, Jake Berdine, Gabriel
+2020.acl-main.173. URL https://aclanthology.
+Bernadett-Shapiro, Christopher Berner, Lenny
+org/2020.acl-main.173.
+Bogdonoff, Oleg Boiko, Madelaine Boyd, AnnaAbhika Mishra, Akari Asai, Vidhisha Balachandran,
+Luisa Brakman, Greg Brockman, Tim Brooks,
+Yizhong Wang, Graham Neubig, Yulia Tsvetkov,
+Miles Brundage, Kevin Button, Trevor Cai, Rosie
+and Hannaneh Hajishirzi. Fine-grained HalluciCampbell, Andrew Cann, Brittany Carey, Chelsea
+nation Detection and Editing for Language ModCarlson, Rory Carmichael, Brooke Chan, Che
+els, January 2024. URL http://arxiv.org/abs/
+Chang, Fotis Chantzis, Derek Chen, Sully Chen,
+2401.06855. arXiv:2401.06855 [cs].
+Ruby Chen, Jason Chen, Mark Chen, Ben Chess,
+Chester Cho, Casey Chu, Hyung Won Chung, Dave
+Francesco Moramarco, Alex Papadopoulos Korfiatis,
+Cummings, Jeremiah Currier, Yunxing Dai, Cory
+Mark Perera, Damir Juric, Jack Flann, Ehud ReDecareaux, Thomas Degry, Noah Deutsch, Damien
+iter, Anya Belz, and Aleksandar Savkov. Human
+Deville, Arka Dhar, David Dohan, Steve DowlEvaluation and Correlation with Automatic Meting, Sheila Dunning, Adrien Ecoffet, Atty Eleti,
+rics in Consultation Note Generation. In Smaranda
+Tyna Eloundou, David Farhi, Liam Fedus, Niko
+Muresan, Preslav Nakov, and Aline VillavicenFelix, Simón Posada Fishman, Juston Forte, Iscio, editors, Proceedings of the 60th Annual Meetabella Fulford, Leo Gao, Elie Georges, Christian
+ing of the Association for Computational LinguisGibson, Vik Goel, Tarun Gogineni, Gabriel Goh,
+tics (Volume 1: Long Papers), pages 5739–5754,
+Rapha Gontijo-Lopes, Jonathan Gordon, Morgan
+Dublin, Ireland, May 2022. Association for ComGrafstein, Scott Gray, Ryan Greene, Joshua Gross,
+putational Linguistics. doi: 10.18653/v1/2022.
+Shixiang Shane Gu, Yufei Guo, Chris Hallacy,
+acl-long.394. URL https://aclanthology.org/
+Jesse Han, Jeff Harris, Yuchen He, Mike Heaton,
+2022.acl-long.394.
+Johannes Heidecke, Chris Hesse, Alan Hickey,
+Wade Hickey, Peter Hoeschele, Brandon Houghton,
+Stephanie K Mueller, Kyla Giannelli, Robert Boxer,
+Kenny Hsu, Shengli Hu, Xin Hu, Joost Huizinga,
+and Jeffrey L Schnipper.
+Readability of paShantanu Jain, Shawn Jain, Joanne Jang, Antient discharge instructions with and without the
+gela Jiang, Roger Jiang, Haozhun Jin, Denny Jin,
+use of electronically available disease-specific temShino Jomoto, Billie Jonn, Heewoo Jun, Tomer
+plates. Journal of the American Medical InKaftan, Lukasz Kaiser, Ali Kamali, Ingmar Kanformatics Association, 22(4):857–863, July 2015.
+itscheider, Nitish Shirish Keskar, Tabarak Khan,
+ISSN 1527-974X, 1067-5027.
+doi: 10.1093/
+Logan Kilpatrick, Jong Wook Kim, Christina Kim,
+jamia/ocv005. URL https://academic.oup.com/
+Yongjik Kim, Hendrik Kirchner, Jamie Kiros, Matt
+jamia/article/22/4/857/1746200.
+Knight, Daniel Kokotajlo, Lukasz Kondraciuk, AnFeng Nan, Ramesh Nallapati, Zhiguo Wang, Cidrew Kondrich, Aris Konstantinidis, Kyle Kosic,
+cero Nogueira dos Santos, Henghui Zhu, DeGretchen Krueger, Vishal Kuo, Michael Lampe,
+353
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Ikai Lan, Teddy Lee, Jan Leike, Jade Leung, Daniel
+Levy, Chak Ming Li, Rachel Lim, Molly Lin,
+Stephanie Lin, Mateusz Litwin, Theresa Lopez,
+Ryan Lowe, Patricia Lue, Anna Makanju, Kim
+Malfacini, Sam Manning, Todor Markov, Yaniv
+Markovski, Bianca Martin, Katie Mayer, Andrew
+Mayne, Bob McGrew, Scott Mayer McKinney,
+Christine McLeavey, Paul McMillan, Jake McNeil,
+David Medina, Aalok Mehta, Jacob Menick, Luke
+Metz, Andrey Mishchenko, Pamela Mishkin, Vinnie Monaco, Evan Morikawa, Daniel Mossing, Tong
+Mu, Mira Murati, Oleg Murk, David Mély, Ashvin
+Nair, Reiichiro Nakano, Rajeev Nayak, Arvind
+Neelakantan, Richard Ngo, Hyeonwoo Noh, Long
+Ouyang, Cullen O’Keefe, Jakub Pachocki, Alex
+Paino, Joe Palermo, Ashley Pantuliano, Giambattista Parascandolo, Joel Parish, Emy Parparita,
+Alex Passos, Mikhail Pavlov, Andrew Peng, Adam
+Perelman, Filipe de Avila Belbute Peres, Michael
+Petrov, Henrique Ponde de Oliveira Pinto, Michael,
+Pokorny, Michelle Pokrass, Vitchyr Pong, Tolly
+Powell, Alethea Power, Boris Power, Elizabeth
+Proehl, Raul Puri, Alec Radford, Jack Rae, Aditya
+Ramesh, Cameron Raymond, Francis Real, Kendra
+Rimbach, Carl Ross, Bob Rotsted, Henri Roussez,
+Nick Ryder, Mario Saltarelli, Ted Sanders, Shibani
+Santurkar, Girish Sastry, Heather Schmidt, David
+Schnurr, John Schulman, Daniel Selsam, Kyla
+Sheppard, Toki Sherbakov, Jessica Shieh, Sarah
+Shoker, Pranav Shyam, Szymon Sidor, Eric Sigler,
+Maddie Simens, Jordan Sitkin, Katarina Slama,
+Ian Sohl, Benjamin Sokolowsky, Yang Song,
+Natalie Staudacher, Felipe Petroski Such, Natalie Summers, Ilya Sutskever, Jie Tang, Nikolas
+Tezak, Madeleine Thompson, Phil Tillet, Amin
+Tootoonchian, Elizabeth Tseng, Preston Tuggle,
+Nick Turley, Jerry Tworek, Juan Felipe Cerón
+Uribe, Andrea Vallone, Arun Vijayvergiya, Chelsea
+Voss, Carroll Wainwright, Justin Jay Wang, Alvin
+Wang, Ben Wang, Jonathan Ward, Jason Wei,
+C. J. Weinmann, Akila Welihinda, Peter Welinder, Jiayi Weng, Lilian Weng, Matt Wiethoff, Dave
+Willner, Clemens Winter, Samuel Wolrich, Hannah
+Wong, Lauren Workman, Sherwin Wu, Jeff Wu,
+Michael Wu, Kai Xiao, Tao Xu, Sarah Yoo, Kevin
+Yu, Qiming Yuan, Wojciech Zaremba, Rowan
+Zellers, Chong Zhang, Marvin Zhang, Shengjia
+Zhao, Tianhao Zheng, Juntang Zhuang, William
+Zhuk, and Barret Zoph. GPT-4 Technical Report, December 2023. URL http://arxiv.org/
+abs/2303.08774. arXiv:2303.08774 [cs].
+
+Sarita Pathak, Gregory Summerville, Celia P Kaplan, Sarah S Nouri, and Leah S Karliner. PatientReported Use of the After Visit Summary in a
+Primary Care Internal Medicine Practice. Journal of Patient Experience, 7(5):703–707, October 2020.
+ISSN 2374-3735.
+doi: 10.1177/
+2374373519879286. URL https://www.ncbi.nlm.
+nih.gov/pmc/articles/PMC7705830/.
+Carswella Phillips. Relationships between workload perception, burnout, and intent to leave
+among medical–surgical nurses. JBI Evidence
+Implementation, 18(2):265, June 2020. ISSN 26913321.
+doi:
+10.1097/XEB.0000000000000220.
+URL
+https://journals.lww.com/ijebh/
+abstract/2020/06000/relationships_
+between_workload_perception,.11.aspx.
+Isabel Segura-Bedmar, Paloma Martı́nez, and Marı́a
+Herrero-Zazo. SemEval-2013 Task 9 : Extraction of Drug-Drug Interactions from Biomedical
+Texts (DDIExtraction 2013). In Suresh Manandhar and Deniz Yuret, editors, Second Joint Conference on Lexical and Computational Semantics
+(*SEM), Volume 2: Proceedings of the Seventh
+International Workshop on Semantic Evaluation
+(SemEval 2013), pages 341–350, Atlanta, Georgia, USA, June 2013. Association for Computational Linguistics. URL https://aclanthology.
+org/S13-2056.
+Sina J. Semnani, Violet Z. Yao, Heidi C. Zhang,
+and Monica S. Lam. WikiChat: Stopping the
+Hallucination of Large Language Model Chatbots
+by Few-Shot Grounding on Wikipedia, October
+2023. URL http://arxiv.org/abs/2305.14292.
+arXiv:2305.14292 [cs].
+Craig Thomson and Ehud Reiter. A Gold Standard
+Methodology for Evaluating Accuracy in Data-ToText Systems. In Brian Davis, Yvette Graham,
+John Kelleher, and Yaji Sripada, editors, Proceedings of the 13th International Conference on Natural Language Generation, pages 158–168, Dublin,
+Ireland, December 2020. Association for Computational Linguistics. URL https://aclanthology.
+org/2020.inlg-1.22.
+Craig Thomson and Ehud Reiter. Generation Challenges: Results of the Accuracy Evaluation Shared
+Task, August 2021. URL http://arxiv.org/abs/
+2108.05644. arXiv:2108.05644 [cs].
+
+354
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Craig Thomson, Ehud Reiter, and Barkavi Sundararajan.
+Evaluating factual accuracy in
+complex data-to-text.
+Computer Speech &
+Language, 80:101482, May 2023. ISSN 08852308.
+doi: 10.1016/j.csl.2023.101482.
+URL
+https://www.sciencedirect.com/science/
+article/pii/S0885230823000013.
+Katherine Tian, Eric Mitchell, Huaxiu Yao, Christopher D. Manning, and Chelsea Finn.
+Finetuning Language Models for Factuality, November
+2023. URL http://arxiv.org/abs/2311.08401.
+arXiv:2311.08401 [cs].
+
+tian Bluethgen, Anuj Pareek, Malgorzata Polacin,
+Eduardo Pontes Reis, Anna Seehofnerová, Nidhi
+Rohatgi, Poonam Hosamani, William Collins,
+Neera Ahuja, Curtis P. Langlotz, Jason Hom, Sergios Gatidis, John Pauly, and Akshay S. Chaudhari. Adapted large language models can outperform medical experts in clinical text summarization. Nature Medicine, pages 1–9, February 2024.
+ISSN 1546-170X.
+doi: 10.1038/
+s41591-024-02855-5. URL https://www.nature.
+com/articles/s41591-024-02855-5. Publisher:
+Nature Publishing Group.
+
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Alexander G. Watson, Jonathan V. McCoy,
+JoAnn Mathew, Daniel A. Gundersen, and
+Albert, Amjad Almahairi, Yasmine Babaei, NikoRobert M. Eisenstein.
+Impact of physician
+lay Bashlykov, Soumya Batra, Prajjwal Bhargava,
+workload on burnout in the emergency departShruti Bhosale, Dan Bikel, Lukas Blecher, Crisment. Psychology, Health & Medicine, 24(4):
+tian Canton Ferrer, Moya Chen, Guillem Cucu414–428, April 2019.
+ISSN 1354-8506.
+doi:
+rull, David Esiobu, Jude Fernandes, Jeremy Fu,
+10.1080/13548506.2018.1539236.
+URL https:
+Wenyin Fu, Brian Fuller, Cynthia Gao, Vedanuj
+//doi.org/10.1080/13548506.2018.1539236.
+Goswami, Naman Goyal, Anthony Hartshorn,
+eprint:
+Publisher:
+Taylor
+&
+Francis
+Saghar Hosseini, Rui Hou, Hakan Inan, Marcin
+https://doi.org/10.1080/13548506.2018.1539236.
+Kardas, Viktor Kerkez, Madian Khabsa, Isabel
+Kloumann, Artem Korenev, Punit Singh Koura,
+Marie-Anne Lachaux, Thibaut Lavril, Jenya Lee, Wei-Hung Weng, Yu-An Chung, and Peter Szolovits.
+Unsupervised Clinical Language Translation. In
+Diana Liskovich, Yinghai Lu, Yuning Mao, Xavier
+Proceedings of the 25th ACM SIGKDD InternaMartinet, Todor Mihaylov, Pushkar Mishra, Igor
+tional Conference on Knowledge Discovery & Data
+Molybog, Yixin Nie, Andrew Poulton, Jeremy
+Mining, KDD ’19, pages 3121–3131, New York,
+Reizenstein, Rashi Rungta, Kalyan Saladi, Alan
+NY, USA, July 2019. Association for ComputSchelten, Ruan Silva, Eric Michael Smith, Raning Machinery. ISBN 978-1-4503-6201-6. doi:
+jan Subramanian, Xiaoqing Ellen Tan, Binh Tang,
+10.1145/3292500.3330710. URL https://dl.acm.
+Ross Taylor, Adina Williams, Jian Xiang Kuan,
+org/doi/10.1145/3292500.3330710.
+Puxin Xu, Zheng Yan, Iliyan Zarov, Yuchen
+Zhang, Angela Fan, Melanie Kambadur, Sharan Narang, Aurelien Rodriguez, Robert Stojnic, Thomas Wolf, Lysandre Debut, Victor Sanh, Julien
+Sergey Edunov, and Thomas Scialom. Llama 2:
+Chaumond, Clement Delangue, Anthony Moi,
+Open Foundation and Fine-Tuned Chat Models,
+Pierric Cistac, Tim Rault, Rémi Louf, Morgan
+July 2023. URL http://arxiv.org/abs/2307.
+Funtowicz, Joe Davison, Sam Shleifer, Patrick von
+09288. arXiv:2307.09288 [cs].
+Platen, Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu, Teven Le Scao, Sylvain Gugger, Mariama
+Dave Van Veen, Cara Van Uden, Maayane Attias,
+Drame, Quentin Lhoest, and Alexander M. Rush.
+Anuj Pareek, Christian Bluethgen, Malgorzata PoHuggingFace’s Transformers: State-of-the-art Natlacin, Wah Chiu, Jean-Benoit Delbrouck, Juan
+ural Language Processing, July 2020. URL http:
+Manuel Zambrano Chaves, Curtis P. Langlotz, Ak//arxiv.org/abs/1910.03771. arXiv:1910.03771
+shay S. Chaudhari, and John Pauly. RadAdapt:
+[cs].
+Radiology Report Summarization via Lightweight
+Domain Adaptation of Large Language Models,
+May 2023. URL http://arxiv.org/abs/2305. Qianqian Xie, Jiayu Zhou, Yifan Peng, and Fei
+Wang. FactReranker: Fact-guided Reranker for
+01146. arXiv:2305.01146 [cs].
+Faithful Radiology Report Summarization, March
+2023. URL http://arxiv.org/abs/2303.08335.
+Dave Van Veen, Cara Van Uden, Louis BlankearXiv:2303.08335 [cs].
+meier, Jean-Benoit Delbrouck, Asad Aali, Chris355
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Wei Xu, Courtney Napoles, Ellie Pavlick, Quanze
+Chen, and Chris Callison-Burch. Optimizing Statistical Machine Translation for Text Simplification. Transactions of the Association for Computational Linguistics, 4:401–415, 2016. doi: 10.
+1162/tacl a 00107. URL https://aclanthology.
+org/Q16-1029. Place: Cambridge, MA Publisher:
+MIT Press.
+Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q.
+Weinberger, and Yoav Artzi. BERTScore: Evaluating Text Generation with BERT, February
+2020a. URL http://arxiv.org/abs/1904.09675.
+arXiv:1904.09675 [cs].
+Yuhao Zhang, Derek Merck, Emily Tsai, Christopher D. Manning, and Curtis Langlotz. Optimizing the Factual Correctness of a Summary:
+A Study of Summarizing Radiology Reports. In
+Dan Jurafsky, Joyce Chai, Natalie Schluter, and
+Joel Tetreault, editors, Proceedings of the 58th
+Annual Meeting of the Association for Computational Linguistics, pages 5108–5120, Online, July
+2020b. Association for Computational Linguistics.
+doi: 10.18653/v1/2020.acl-main.458. URL https:
+//aclanthology.org/2020.acl-main.458.
+Chunting Zhou, Graham Neubig, Jiatao Gu, Mona
+Diab, Francisco Guzmán, Luke Zettlemoyer, and
+Marjan Ghazvininejad. Detecting Hallucinated
+Content in Conditional Neural Sequence Generation.
+In Findings of the Association for
+Computational Linguistics: ACL-IJCNLP 2021,
+pages 1393–1404, Online, August 2021. Association for Computational Linguistics. doi: 10.
+18653/v1/2021.findings-acl.120. URL https://
+aclanthology.org/2021.findings-acl.120.
+Chunting Zhou, Pengfei Liu, Puxin Xu, Srini Iyer,
+Jiao Sun, Yuning Mao, Xuezhe Ma, Avia Efrat,
+Ping Yu, Lili Yu, Susan Zhang, Gargi Ghosh, Mike
+Lewis, Luke Zettlemoyer, and Omer Levy. LIMA:
+Less Is More for Alignment. In Thirty-seventh Conference on Neural Information Processing Systems,
+November 2023. URL https://openreview.net/
+forum?id=KBMOKmX2he.
+
+356
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Appendix A. Data Preprocessing
+
+Quantity
+
+Value (SD)
+
+MIMIC-IV-Note-Ext-DI (100, 175 context-summary ex.)
+
+A.1. Methods
+Our goal for the preprocessing was to obtain fluent
+patient summaries with no artifacts. In general, we
+targeted for a higher precision, i.e., we considered
+removing low quality summaries as more important
+than keeping all summaries. We used two methods to
+iteratively build the dataset pipeline. First, we sampled 100 included and 100 excluded summaries and
+one author with medical expertise compared them
+with our preprocessing goals. Based on this analysis,
+we repeatedly refined the dataset pipeline. Second,
+we used the t-SNE method to analyze the BERT embeddings of the summaries to identify more systematic patterns. We mostly relied on static patterns
+and regular expressions to remove content since automatic approaches did not show a sufficient precision.
+The code for the preprocessing pipeline is available
+on GitHub.
+
+A.2. Results
+The final dataset pipeline is shown in Figure 5. During preprocessing, we mostly focused on the summary. After steps changing the summary length,
+we filtered for summaries shorter than 350 character,
+which we considered as useful minimum length. To
+split the summary and the remaining hospital course,
+we simply used the Discharge Instructions section
+(Cai et al., 2022), which occurred in all but 2,690
+notes. This lead to a total of 296,697 candidate summaries. In step 2, we removed static prefixes that we
+encountered in our analysis that contained no specific
+and relevant content leading to 292,536 candidates.
+Next, we changed patterns in the summaries to make
+them more fluent. A typical approach to structure a
+summary is using headings like “Why were you in the
+hospital?”. To obtain fluent and homogeneous summaries, we removed those. Also, we replaced some
+simplistic deidentification patterns with the pronoun
+you to reduce the deidentified content. In step 4, we
+removed suffixes of the summaries, which often contained well wishes and general instructions. We also
+removed several static templates, e.g., that are used
+after a specific surgery, by filtering for key phrases.
+Hence, a large amount of summaries was removed
+leaving us with 119,260 notes. Lastly, we filtered
+for some additional quality criteria of the summaries
+and the brief hospital course (BHC), which is the sec-
+
+# Sentences
+# Words
+# Tokens
+# Characters
+# Deidentified
+
+118.2 (50.4)
+2088.8 (778.1)
+4367.1 (1625.3)
+11343.6 (4377.8)
+67.5 (39.1)
+
+# Sentences
+# Words
+Short context (BHC)
+# Tokens
+[used in this work]
+# Characters
+# Deidentified
+
+33.0 (19.0)
+552.0 (314.0)
+858.6 (498.3)
+3029.9 (1736.4)
+11.5 (9.7)
+
+Full context
+
+Summaries (DI)
+
+# Sentences
+# Words
+# Tokens
+# Characters
+# Deidentified
+
+6.5 (2.6)
+113.2 (47.4)
+145.4 (61.4)
+604.4 (251.0)
+1.1 (1.7)
+
+Table 6: Overview of MIMIC-IV-Note-Ext-DI with
+the full context and MIMIC-IV-Note-ExtDI-BHC with the Brief Hospital Course
+(BHC) as context. The discharge summaries (DI serve as patient summaries for
+both datasets.6
+
+tion before the summary leading to a total of 100,175
+context-summary pairs.
+We performed a performance analysis on the original MIMIC-IV-Note dataset and MIMIC-IV-NoteExt-DI for prediction of the discharge instructions
+with LED-large (see Table 7). We can observe that
+our preprocessing pipeline lead to a significant decrease in performance, suggesting that instances that
+were easier to predict were removed.
+A.3. Analyzing 100 Included and Excluded
+Patient Summaries
+For a qualitative analysis of the preprocessing, we
+also checked 100 examples that were processed and
+kept in the dataset (positive) and 100 examples that
+were removed (negative). One author with medical
+expertise looked at the original summaries and decided which part of the positive examples should be
+kept or whether a negative example should be removed. Among the 100 positive examples, nine were
+considered problematic due to removal of important
+
+357
+
+6. Sentences and words were determined with nltk. Tokens
+were determined with the Llama 2 tokenizer.
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+MIMIC-IV notes: 331,793
+1. Determined start of summaries (Discharge Instructions):
+No start of summary found: 2,690
+Removed summaries with less than 350 characters: 36,406
+MIMIC-IV notes: 296,697
+2. Truncated static prefixes of summaries:
+Removed hand-engineered static prefixes (387,123)
+Removed summaries with less than 350 characters: 4,161
+MIMIC-IV notes: 292,536
+3. Removed static patterns from summaries:
+Changed why/what/next paragraphs (76,625)
+Replaced simple deidentifications with pronouns (15,484)
+Removed summaries with less than 350 characters: 2,277
+MIMIC-IV notes: 290,259
+4. Truncated static suffixes of summaries:
+Removed hand-engineered static suffixes (778,203)
+Removed lines without text and leading item symbol (10,268)
+Removed empty summaries: 31,456
+Removed summaries with less than 350 characters: 139,543
+
+MIMIC-IV notes: 119,260
+
+5. Filter summaries with additional quality criteria:
+Summary < 3 sentences: 1,306
+More than 5 double newlines: 850
+More than 1 deidentified fields per 10 words: 232
+MIMIC-IV notes: 116,872
+6. Filter hospital course:
+No Brief Hospital Course extracted: 16,181
+Removed Brief Hospital Courses with less than 500 char.: 516
+MIMIC-IV notes: 100,175
+Use all parts of the note prior to the summary
+(Discharge Instruction) as context
+MIMIC-IV-Note-Ext-DI
+(100,175 examples)
+
+Only use the Brief Hospital Course section of
+the note as context
+MIMIC-IV-Note-Ext-DI-BHC
+(100,175 examples)
+
+Figure 5: The preprocessing steps performed on MIMIC-IV-Note to obtain the datasets MIMIC-IV-NoteExt-DI(-BHC). The goal was obtain diverse and free text discharge instructions (DI) as patient
+summaries.
+
+content during preprocessing. Typically, the summary was cut at a closing statement, e.g., “Please
+follow up with your PCP”, but additional content
+was present after this. We also noted 33 positive examples with slight problems that did not affect the
+main summary. In two examples a greetings prefix
+was not removed, three examples still contained parts
+of a template after preprocessing, and in 28 examples
+some fluent text was removed that was not essential
+for the summary (11 follow-up, 11 medication, and
+
+6 procedure statements). Of 100 negative examples,
+five were considered problematic. All of them contained statements or headings that lead to too early
+suffix pruning and, hence, were removed. Nine notes
+contained no or a too short brief hospital course.
+Another twelve examples showed useful summaries
+that contained summaries between 300-350 characters. However, we still consider this filtering useful
+to obtain longer summaries with more content.
+
+358
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+1
+
+Medical services
+
+Medical services
+
+medicine
+surgery
+orthopaedics
+neurology
+cardiothoracic
+neurosurgery
+obs/gyn
+psychiatry
+urology
+other
+
+y
+
+0.6
+
+0.4
+
+medicine
+surgery
+orthopaedics
+neurology
+cardiothoracic
+neurosurgery
+obs/gyn
+psychiatry
+urology
+other
+
+0.8
+
+0.6
+
+y
+
+0.8
+
+0.4
+
+0.2
+0.2
+0
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+0
+
+0.2
+
+0.4
+
+x
+
+0.6
+
+0.8
+
+1
+
+x
+
+Figure 6: The t-SNE embeddings of 10.000 random patient summaries before and after the preprocessing
+labeled with the medical specialty mentioned in the note. We can observe outliers associated with
+medical specialties in the unprocessed data indicating the use of summary templates.
+
+Dataset
+
+R-1↑
+
+R-2↑
+
+R-3↑
+
+R-4↑
+
+R-L↑
+
+BERT↑
+
+DeBERT↑
+
+SARI↑
+
+Words
+
+31.28
+17.70
+
+24.06
+9.12
+
+20.08
+5.21
+
+39.85
+29.89
+
+89.10
+88.28
+
+70.48
+64.22
+
+60.62
+46.78
+
+162.49
+82.15
+
+LED-large (allenai/led-large-16384)
+MIMIC-IV-Note (unprocessed)
+MIMIC-IV-Note-Ext-DI
+
+51.17
+44.04
+
+Table 7: Performance results for the LED-large model before and after preprocessing. A test set of 10.000
+examples was used and the remaining data for training. The performance of the model decreased
+after preprocessing, suggesting that instances that were easier to predict were removed.
+
+A.4. Analyzing Embeddings
+
+labels and agreed on annotations. During this process, the annotators determined the number of labels
+with agreement for agreement statistics. We considered this approach more reliable than an automatic
+procedure since annotations of the same hallucination could differ a lot (e.g., labelling the negation instead of the subject). Results for annotations found
+by both annotators with the same and different labels
+are also given in Table 8.
+
+We also inspected the t-SNE embeddings (Maaten
+and Hinton, 2008) of the patient summaries before
+and after preprocessing. Figure 6 shows the embeddings colored by the medical service mentioned in the
+note. The unprocessed summaries show several cluster that are often associated with a single medical service (same color). Inspection of those cluster revealed
+that these often represent static templates and copied
+content. We used these cluster to add filtering steps
+We determined the inter-annotator agreement for
+in our preprocessing pipeline. The processed sum- hallucination labeling and the qualitative evaluation.
+maries show a much more homogeneous distribution For hallucination labeling, we calculated the agreeand medical services cannot easily be distinguished. ment for annotated spans using the approach from
+Moramarco et al. (2022). To this end, we considered a simplification of the original task and calAppendix B. Annotations Statistics
+culated the interval Krippendorff’s alpha (KrippenBoth hallucination annotations were done completely dorff, 2018) for the number of annotated hallucinaseparate by both annotators. Table 8 shows the re- tions per summary. The agreement was 0.629 for the
+sults for MIMIC summaries and generated summaries 100 MIMIC and 0.826 for the generated summaries
+split by annotators. After the annotation, there was indicating that annotating generated summaries was
+a agreement process where annotators discussed their easier (see Table 9). Additionally, we computed F1359
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Datasets:
+
+Experiments:
+Quantitative Evaluation (including parameter tuning):
+
+MIMIC-IV-Note
+(331,793 ex.)
+Training
+Preprocessing
+and filtering
+MIMIC-IV-Note-Ext-DI-BHC
+(100,175 ex.)
+
+1.
+2.
+3.
+4.
+5.
+6.
+
+Filtered for
+contexts ≤ 4000 chars
+summaries ≥ 600 chars
+
+LED-base (fine-tuned on 80,140 examples)
+LED-large (fine-tuned on 80,140 examples)
+Llama 2 7B/70B (fine-tuned on 100 random examples)
+Llama 2 70B (fine-tuned on 100 random examples)
+GPT-4 5-shot (prompted with 5 random examples)
+GPT-4 0-shot (none)
+Validation examples
+(100 ex.)
+
+Parameter
+tuning
+
+Test examples
+(100 ex.)
+
+Determined
+metrics
+
+MIMIC-IV-Note-Ext-DI-BHC-Anno
+(26,178 ex.)
+Randomly
+sampled
+Original
+(100 ex.)
+Annotated
+hallucinations
+
+Data-Centric Hallucination Reduction:
+Training
+
+Hallucinations-MIMIC-DI
+(100 ex.)
+Removed or replaced
+hallucinations
+
+1.
+2.
+3.
+4.
+5.
+
+Predict with
+5 models
+
+Generated summaries
+(100 ex.)
+
+Cleaned
+(100 ex.)
+Fixed typos and
+grammatical errors
+Cleaned & improved
+(100 ex.)
+
+Hallucinations-MIMIC-DI
+(100 ex.)
+HallucinationsGenerated-DI
+(100 ex.)
+
+Annotated
+hallucinations HallucinationsGenerated-DI
+(100 ex.)
+
+Evaluated
+hallucinationreduction
+
+Qualitative Evaluation:
+Training
+
+Randomly sampled
+contexts
+Generation contexts
+(20 ex.)
+
+Llama 2 70B (fine-tuned on 100 original examples)
+GPT-4 5-shot (prompted with 5 random original examples)
+Llama 2 70B (fine-tuned on 100 cleaned examples)
+GPT-4 5-shot (prompted with 5 random cleaned examples)
+GPT-4 0-shot (none)
+
+1.
+2.
+3.
+4.
+5.
+
+Predict with
+5 models
+
+Original examples (MIMIC summaries of 20 generation contexts)
+LED-large (fine-tuned on 80,140 MIMIC-IV-Note-DI examples)
+Llama 2 70B (fine-tuned on 100 cleaned & improved examples)
+GPT-4 5-shot (prompted with 5 cleaned & improved examples)
+GPT-4 0-shot (none)
+
+Generated summaries
+(100 ex.)
+
+Evaluated
+Quality
+
+Automatic Hallucination Detection:
+1.
+2.
+3.
+4.
+
+MedCat
+MedCat + Embedding
+GPT-4 (class-agnostic)
+GPT-4 (class-aware)
+
+Evaluated
+hallucination
+detection
+
+Figure 7: An overview flowchart of all datasets used in the experiments of this paper.
+scores for the overlap of annotated spans between
+both annotators (Moramarco et al., 2022). The results showed similar scores for MIMIC and generated
+summaries with F1-scores of 0.479 and 0.440 when
+ignoring class labels and 0.245 and 0.271 when distinguishing classes (see Table 9). Although the results
+were slightly better than those reported in Moramarco et al. (2022), they underscore the difficulty
+
+of the hallucination labeling task. To determine the
+inter-annotator agreement for the qualitative evaluation, we used the interval Krippendorff’s alpha (Krippendorff, 2018) for the Likert ratings (see Table 10).
+We distinguished the different qualitative dimensions
+and calculated the agreement for all ratings. The
+overall agreement was 0.586, with the highest agreement observed for consistency at 0.778. This is likely
+
+360
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Quantity
+
+Mean (SD)
+H-MIMIC-DI H-Generated-DI
+
+Annotations annotator 1
+Removed in agreement
+
+2.39 (2.06)
+0.37 (0.66)
+
+1.23 (1.52)
+0.43 (0.67)
+
+Annotations annotator 2
+Removed in agreement
+
+2.82 (2.05)
+0.43 (0.64)
+
+1.18 (1.58)
+0.17 (0.40)
+
+Annotations agreement
+2.86 (2.12)
+Both annot., same label 0.99 (1.16)
+Both annot., diff. label 0.56 (0.73)
+Only annotator 1
+0.47 (0.80)
+Only annotator 2
+0.84 (1.13)
+
+1.14 (1.70)
+0.43 (0.78)
+0.24 (0.62)
+0.13 (0.37)
+0.34 (0.59)
+
+Table 8: Annotation statistics for 100 doctor-written
+(Hallucinations-MIMIC-DI) and 100 generated (Hallucinations-Generated-DI)
+patient summaries. Annotation were done
+separately and agreed on together.
+Annotation Agreement Class-agn.
+Class-aw.
+Task
+(Kripp.-α) overlap (F1) overlap (F1)
+MIMIC
+Generated
+
+0.629
+0.826
+
+0.479
+0.440
+
+0.245
+0.271
+
+Table 9: Inter-annotator agreement for labeling hallucinations. We determined interval Krippendorff’s alpha on the number of hallucination per summary and the F1-score for
+overlap between annotators without (Classagn.) and with classes (Class-aw.).
+
+Appendix C. Parameter Tuning
+We performed parameter tuning for the LED (Beltagy et al., 2020) and the Llama 2 (Touvron et al.,
+2023) models. We used the full MIMIC-IV-Note-ExtDI-BHC containing 100,175 examples and the subset MIMIC-IV-Note-Ext-DI-BHC-Anno of 26,178 examples used for labeling. We performed a separate
+parameter tuning on each dataset. For the LED
+model we performed full fine-tuning using 80% of the
+data for training. For Llama 2 we used LoRA for
+parameter-efficient fine-tuning (Hu et al., 2021) on
+100 training examples and loaded the model in 8 bit.
+For both models, we used 100 examples for validation, and 100 examples for testing. The smaller number of validation and testing examples were chosen to
+reduce the runtime, however, we still consider them
+sufficient for representative results. We tracked our
+experiments with Weights & Biases (Biewald, 2020).
+We used the LED models base and large
+(allenai/led-{base,large}-16384) from Huggingface (Wolf et al., 2020). We trained the model
+for 200,000 steps with a batch size of 1 and performed a validation every 20,000 steps to determine
+the best number of training steps. We used a max source length of 4,096 and max target length of
+350, which sufficed for almost all examples based
+on a prior analysis. For the LED large model we
+had to used the fix described in https://github.
+com/huggingface/transformers/issues/18190 for
+training. We tuned the LED model with a complete
+grid search for the following parameters:
+• dropout in {0.05, 0.1, 0.2}
+
+Rel. Con. Sim. Flu. Coh. Total
+
+• learning rate in {5e-4, 1e-5, 5e-5, 1e-6, 5e-6}
+
+Agree. (Kr.-α) 0.457 0.778 0.633 0.431 0.218 0.586
+
+Table 10: Inter-annotator agreement for qualitative
+evaluation. We determined interval Krippendorff’s alpha on the Likert ratings for
+each dimension separately and all ratings
+together (Total).
+
+because the subtask for consistency required both annotators to label hallucinations using our protocol,
+which we considered the most rigorous instructions
+in the qualitative evaluation (see Appendix F). The
+agreement for fluency and coherence was relatively
+low, at 0.431 and 0.218, respectively, which can be
+attributed to the subjective nature of these ratings.
+
+We could train both models on 24 GB GPUs and the
+training required approximately 8 hours for the base
+and 20 hours for the large model.
+For Llama 2, we also used the 7B and 70B models
+(meta-llama/Llama-2-{7,70}b-hf from Huggingface (Wolf et al., 2020). We trained the model for 100
+steps with a batch size of 1 and gradient accumulation steps of 16. Hence, the model could encounter
+each training example at most 16 times during training. We performed a validation every 10 steps. The
+Llama 2 models have a context size of 4, 096 and we
+truncated the context by removing the last sentences
+until there were at least 350 tokens for generation.
+However, the truncation was very rarely necessary.
+We tuned Llama 2 with a complete grid search for
+the following parameters:
+
+361
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Model
+
+R-1↑
+
+R-2↑
+
+R-3↑
+
+R-4↑
+
+R-L↑
+
+BERT↑
+
+DeBERT↑
+
+SARI↑
+
+Words
+
+4.30
+4.92
+2.24
+2.74
+1.12
+1.49
+
+29.21
+29.89
+24.73
+26.19
+21.98
+21.49
+
+87.98
+88.11
+85.68
+86.30
+86.67
+86.37
+
+63.52
+64.12
+60.23
+61.89
+61.30
+60.75
+
+46.39
+46.71
+44.12
+45.16
+42.88
+42.04
+
+74.36
+76.99
+73.13
+76.90
+131.86
+165.78
+
+3.87
+5.14
+2.53
+2.66
+2.13
+1.75
+
+26.50
+28.87
+22.73
+24.83
+23.91
+22.34
+
+86.71
+87.50
+82.44
+86.43
+86.80
+86.42
+
+60.85
+63.52
+57.07
+61.34
+62.08
+61.12
+
+44.38
+45.84
+42.41
+43.86
+43.40
+42.25
+
+117.81
+117.59
+100.54
+114.08
+159.68
+164.59
+
+MIMIC-IV-Note-Ext-DI-BHC (100,175 examples)
+LED-base (80,140 ex.)
+LED-large (80,140 ex.)
+Llama 2 7B (100 ex.)
+Llama 2 70B (100 ex.)
+GPT-4 5-shot (5 ex.)
+GPT-4 0-shot (none)
+
+43.32
+43.82
+38.36
+40.58
+38.80
+38.26
+
+17.05
+17.33
+12.66
+14.31
+10.78
+10.81
+
+8.26
+8.85
+5.13
+6.09
+3.55
+3.70
+
+MIMIC-IV-Note-Ext-DI-BHC-Anno (26,178 examples)
+LED-base (20,942 ex.)
+LED-large (20,942 ex.)
+Llama 2 7B (100 ex.)
+Llama 2 70B (100 ex.)
+GPT-4 5-shot (5 ex.)
+GPT-4 0-shot (none)
+
+42.30
+46.21
+36.95
+41.82
+43.07
+41.76
+
+14.98
+17.38
+11.92
+13.63
+12.91
+11.39
+
+7.04
+8.72
+5.12
+5.77
+4.79
+3.96
+
+Table 11: All performance results of patient summary generation. We tested all models on the full MIMICIV-Note-Ext-DI-BHC dataset and the subset MIMIC-IV-Note-Ext-DI-BHC-Anno used for labeling.
+Parameter or prompt tuning was performed for all models as described in Appendix C.
+
+• lora rank in {8, 32}
+• lora alpha in {8, 32}
+• lora dropout in {0.050.1}
+• target modules in {[q proj, v proj], [q proj, k proj, v proj, o proj]}
+• learning rate in {2e-5, 2e-4}
+For the Llama 2 7b model, we used a 24 GB GPU
+and the training required around 1,5 hours. For the
+Llama 2 70b model, we used two 80 GB GPUs and
+the training required approximately 8 hours.
+
+Appendix D. Prompt Tuning GPT-4
+We performed prompt tuning for GPT-4 for generating patient summaries. We tried three different
+prompt formats (detailed in Table 14) and evaluated
+them qualitatively and quantitatively on ten held-out
+examples. The prompts used different settings of a
+general assistant, a medical resident assistant, and
+a patient assistant. We noticed that the results of
+the second prompt contained a lot of medical jargon
+leading to results targeted at medical experts. The
+results for the first prompt contained some simplifications but did not follow the style of the in-context examples. For instance, often a different start was used
+“During your hospitalization...”. Prompt three led
+
+to generations with simplified language that followed
+the style of the in-context examples. Hence, qualitatively we considered the third prompt format the
+best. We tried two additional variations of prompt
+three using no in-context examples and using five incontext examples plus an instruction to start with
+“You were admitted”, which should help to guide the
+generation format. The second variant further improved the qualitative results.
+This finding was supported by the quantitative
+analysis on ten held-out examples from the MIMICIV-Note-Ext-DI dataset. The results are shown in
+table 12. In general, prompt three lead to the best
+results and additional in-context example did not degrade the performance. Guiding the output with the
+instructions to start with “You were admitted” also
+lead to a quantitative improvement. Hence, we chose
+this prompt for all our GPT-4 summarization experiments.
+
+Appendix E. Hallucination Detection
+with GPT-4
+Our GPT-4 hallucination detection pipeline consists
+two steps: (1) prompt GPT-4 to annotate hallucinated spans in the original summary text and (2)
+identify and extract the annotated span.
+
+362
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+GPT-4 setting
+
+R-1
+
+R-2
+
+R-3
+
+R-4
+
+R-L
+
+BERTScore
+
+Deberta
+
+SARI
+
+Words
+
+3.87
+3.51
+4.32
+
+1.43
+1.14
+1.90
+
+19.09
+19.64
+20.14
+
+85.63
+85.51
+85.56
+
+60.53
+59.94
+60.56
+
+42.50
+41.90
+42.42
+
+208.40
+189.60
+198.40
+
+38.54
+40.44
+38.65
+
+192.70
+131.80
+127.70
+
+45.70
+43.10
+43.25
+42.39
+43.55
+
+214.40
+191.80
+199.00
+206.30
+138.70
+
+Prompt 1: You are a helpful assistant...
+1 IC example
+3 IC examples
+5 IC examples
+
+40.05
+40.64
+39.47
+
+11.20
+9.99
+10.86
+
+Prompt 2: You are helping with a resident working at a large urban academic medical center...
+1 IC example
+3 IC examples
+5 IC examples
+
+27.93
+34.26
+32.92
+
+5.43
+7.34
+7.28
+
+1.18
+2.50
+2.41
+
+0.05
+1.06
+0.63
+
+13.66
+17.90
+17.40
+
+83.43
+85.26
+85.12
+
+55.69
+59.58
+59.33
+
+Prompt 3: You are a helpful assistant that helps patients understand their medical records...
+0 IC examples
+1 IC examples
+3 IC examples
+5 IC examples
+5 IC examples + “You...”
+
+42.50
+36.05
+38.54
+39.22
+41.99
+
+11.95
+8.97
+9.71
+10.73
+12.83
+
+4.37
+3.28
+3.33
+3.95
+5.22
+
+2.09
+1.53
+1.35
+1.69
+2.26
+
+21.49
+18.32
+19.16
+20.73
+22.67
+
+86.30
+85.84
+85.72
+85.65
+86.95
+
+61.36
+60.20
+60.55
+60.06
+62.35
+
+Table 12: Performance results for GPT-4 for three different prompt formats with different numbers of incontext (IC) examples. The results were generated on ten held-out summaries.
+
+Model
+
+cond.
+
+proc.
+
+medic.
+
+time
+
+location
+
+number
+
+name
+
+words
+
+other
+
+contrad.
+
+incorr.
+
+31.6
+31.6
+18.4
+26.3
+
+22.1
+22.1
+27.9
+33.8
+
+2.9
+2.9
+17.1
+24.3
+
+6.9
+5.2
+17.2
+19.0
+
+7.1
+7.1
+50.0
+57.1
+
+2.8
+2.8
+8.3
+11.1
+
+15.8
+15.1
+7.2
+10.5
+
+50.0
+50.0
+50.0
+50.0
+
+13.3
+13.3
+46.7
+46.7
+
+0.0
+0.0
+0.0
+0.0
+
+31.8
+31.8
+62.5
+50.0
+
+30.8
+26.9
+25.0
+45.0
+
+0.0
+0.0
+50.0
+50.0
+
+30.8
+30.8
+0.0
+0.0
+
+0.0
+0.0
+83.3
+83.3
+
+0.0
+0.0
+40.0
+50.0
+
+6.4
+6.4
+5.7
+10.2
+
+0.0
+0.0
+0.0
+0.0
+
+25.0
+25.0
+42.9
+35.7
+
+0.0
+0.0
+0.0
+0.0
+
+Hallucinations-MIMIC-DI
+MedCat
+MedCat + Embedding
+GPT-4 (class-ag.)
+GPT-4 (class-aw.)
+
+28.8
+28.8
+9.6
+14.4
+
+Hallucinations-Generated-DI
+MedCat
+MedCat + Embedding
+GPT-4 (class-ag.)
+GPT-4 (class-aw.)
+
+38.5
+38.5
+11.1
+18.5
+
+Table 13: Recall for different hallucination labels for hallucination detection on 100 doctor-written summaries
+(Hallucinations-MIMIC-DI) and 100 generated summaries (Hallucinations-Generated-DI) using partial matching.
+
+As GPT-4 is a decoder-only model, we cannot directly uses it to produce per-token predictions for potential spans of hallucination. One approach is to
+prompt it to “label” hallucination spans in the input text, i.e., to generate an HTML-like tag <error
+class="hallucination type"> to indicate potential spans of hallucination in context. For example,
+for a sentence in the summary text, “Your pacemaker
+rate was increased to 50”, GPT-4 would generate the
+following annotated sentence: “Your pacemaker rate
+was increased to <error class="unsupported num-
+
+ber">50</error>” when the actual number is 40.
+This approach is similar to generate the relation or
+unverifiable labels in the pipeline by Mishra et al.
+(2024).
+Given the generated annotations, we then extract
+the labeled spans from the annotated text and use
+them to identify potential hallucinations. Sometimes
+GPT-4 might produce text that is slightly different
+from the original text (e.g., correcting typos in the
+original sentences). Under such circumstances, we
+
+363
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+first match the generations with the original sentence
+and then extract the labeled spans.
+Table 15,16,17 show the prompt used to inform
+GPT-4 of potential error types and the format for
+annotating the hallucination spans. We can optionally turn off the hallucination class detection
+(i.e., generating only <error> rather than <error
+class="hallucination type">), and we compare
+the results as class-aware and class-agnostic hallucination detection.
+One can also optionally prompt the LLM to
+reason about potential spans of hallucination before
+annotating the full text with chain-of-thought reasoning. In practice, we prompt GPT-4 to generate
+a list of labeled hallucination and explanations that
+mimics the examples in the prompt, i.e., generating
+bullet point lists like - "Your <error>red blood
+cell count</error> was followed and was
+stable." The BHC does not state that the
+red blood cell count was followed. Instead
+the hematocrit remained stable according to
+the BHC. with explanation before annotating the
+full summary with hallucination labels.
+
+to ensure the quality of generated summaries in our
+hallucination-reduction experiments (see Table 2).
+We did not develop a protocol for these labeling
+tasks. Instead, we used a more subjective procedure.
+For labeling key facts, annotators were asked to label key information that is important for the patient
+in the context. After that, they should label mentions of these facts in each summary (see dark blue
+annotations in Figure 2). Based on this, missing key
+facts in the summary could be determined. For medical jargon, annotators were asked to label span that
+they assumed would be difficult to be understood by
+the given patient (see green annotations in Figure 2).
+Every medical jargon term was only counted once for
+each summary. We also did not perform an agreement
+procedure between both annotators, since we did not
+develop a formal protocol and considered these labeling tasks more subjective.
+
+Appendix F. Qualitative Evaluation
+For our qualitative evaluation of patient summaries
+we used the dimension introduced in Fabbri et al.
+(2021). They evaluated the quality of summaries for
+news articles in the CNN/DailyMail dataset (Hermann et al., 2015). The same taxonomy was already
+used for medical summaries (Adams et al., 2022). We
+adapted the instructions slightly by replacing “article“ with “brief hospital course“ to better suite our
+setting. We also added the dimension Simplification
+to measure the extent to which layperson language
+was used. We presented the annotators with the instructions shown in Figure 8. For step 2, we required
+the annotators to label hallucination. We used the
+developed protocol for this. For steps 1 and 3, annotators had to label key facts and medical jargon as
+described below.
+F.1. Labeling Key Facts and Medical Jargon
+To improve the quality of the qualitative evaluation,
+we required annotators to label key facts and medical jargon for step 1 and 3. Based on this, they
+would then enter their rating on a Likert scale. We
+also used annotation for key facts and medical jargon
+364
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+1. Relevance: The rating measures how well the summary captures the key points of the brief hospital
+course. Consider whether all and only the important aspects are contained in the summary. To this
+end, please label key facts in the context and the summary.
+5 = all key points included
+4 = 1 key point missing
+3 = 2 key point missing
+2 = 3 key point missing
+1 = more than 3 key points missing
+2. Consistency: The rating measures whether the facts in the summary are consistent with the
+facts in the original brief hospital course. Consider whether the summary does reproduce all facts
+accurately and does not make up untrue information. To this end, please label all hallucination in
+the summary according to the protocol.
+5 = no finding
+4 = 1-2 minor findings
+3 = more than 2 minor or 1 major finding
+2 = 2 major findings
+1 = more than 2 major findings
+3. Simplification: The rating measures whether the summary is written in plain language understandable for a patient. Consider medical terms and abbreviations. To this end, please label medical
+jargon in the summary.
+5 = no medical jargon
+4 = 1-2 minor unexplained medical term
+3 = more than 2 minor or 1 major medical term
+2 = 2 major medical terms
+1 = more than 2 major medical terms
+4. Fluency: This rating measures the quality of individual sentences, are they well-written and
+grammatically correct. Consider the quality of individual sentences.
+5 = all sentences are well-written and correct
+4 = 1-2 sentences have minor errors or poor style
+3 = more than 2 sentences with minor errors or poor style or 1 sentence with severe error
+2 = 2 sentences with major errors
+1 = more than 3 major errors
+5. Coherence: The rating measures the quality of all sentences collectively, to the fit together and
+sound naturally. Consider the quality of the summary as a whole.
+5 = the summary as a whole is well-written and clearly structured
+4 = the summary is mostly well-written and structured
+3 = the summary can be followed and has some structure
+2 = the summary is hard to follow and has no clear structure
+1 = the summary is very hard to follow and very unstructured
+Figure 8: Instructions for qualitative evaluation. For step 1, 2, and 3 additional annotation were performed.
+
+365
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Brief Hospital Course: Mrs. ___ is a ___ female w/ PMH of CAD, HTN, HLD, DMII (on Metformin) who presented to the ED
+with severe dyspnea and chest pain. ___ was admitted for acute on chronic diastolic heart failure in the setting of
+PNA. ACTIVE ISSUES: # Acute on chronic diastolic heart failure: ECG in ED unremarkable w/out ST-T wave abnormalities,
+heart enzymes x2 ruled out acute myocardial damage, exacerbation likely in the setting of PNA. Patient reported
+dietary change w/ increased salt intake that could have caused this. Diuresed with lasix gtt.
+
+Bilanced negative
+
+daily (max. ___ L). Sx improved with diuresis. #Pneumonia: Developed productive cough and new O2 requirement, most
+likely CAP, CXR showed new LLL infiltrate. Started on IV CTX and azithromycin to complete a 5 day course (held home
+atorvastatin in the setting of azithromycin). Fever resolved on HD#1. Remained afebrile for entire admission.
+Significantly improved and was discharged on HD#5. # T2DM: Serum glc slightly elevated on admission. ___ suggested to
+increase Metformin as outpatient (Dr. ___). #Hyponatremia: hypervolemic hyponatremia in setting of DHF. Resolved with
+lasix. # HTN. Normotensive during admission. Continued home lisinopril and metoprolol. TRANSITIONAL ISSUES: Please
+follow-up with PCP to adjust DM medications.
+GPT-4 5-shot prompted with 5 cleaned & improved examples - modified:
+You were admitted with severe shortness of breath and chest pain, which was found to be due to a worsening of your
+chronic heart failure, likely triggered by a lung infection (pneumonia) as seen on CXR and possibly by a recent
+increase in your salt intake. You were treated with medications to remove excess fluid from your body and antibiotics
+for the pneumonia. Your blood sugar levels were a bit high, and your doctor may adjust your diabetes medication after
+you leave the hospital. You also had low sodium levels in your blood likely due to a hypervolemic hyponatremia, which
+improved with the treatment for your heart failure. Your blood pressure was well controlled with your usual
+medications. You are feeling much better now and are ready to go home. Please make sure to see your primary care
+doctor to discuss any changes to your diabetes treatment.
+
+Figure 9: Example for annotation of key facts and medical jargon based on the synthetic example and a
+modified output of GPT-4 5-shot. Annotators labeled key facts in the context and the summary
+(dark blue). The number of missing facts was determined based on the difference between key
+facts in the context and the respective summary. Medical jargon was labeled only in the summary
+(green). In the given summary, there are zero missing key facts and two uses of medical jargon.
+
+366
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Brief Hospital Course: Mrs. ___ is a ___ female w/ PMH of CAD, HTN, HLD, DMII (on Metformin) who presented to the ED
+with severe dyspnea and chest pain. ___ was admitted for acute on chronic diastolic heart failure in the setting of
+PNA. ACTIVE ISSUES: # Acute on chronic diastolic heart failure: ECG in ED unremarkable w/out ST-T wave abnormalities,
+heart enzymes x2 ruled out acute myocardial damage, exacerbation likely in the setting of PNA. Patient reported
+dietary change w/ increased salt intake that could have caused this. Diuresed with lasix gtt.
+
+Bilanced negative
+
+daily (max. ___ L). Sx improved with diuresis. #Pneumonia: Developed productive cough and new O2 requirement, most
+likely CAP, CXR showed new LLL infiltrate. Started on IV CTX and azithromycin to complete a 5 day course (held home
+atorvastatin in the setting of azithromycin). Fever resolved on HD#1. Remained afebrile for entire admission.
+Significantly improved and was discharged on HD#5. # T2DM: Serum glc slightly elevated on admission. ___ suggested to
+increase Metformin as outpatient (Dr. ___). #Hyponatremia: hypervolemic hyponatremia in setting of DHF. Resolved with
+lasix. # HTN. Normotensive during admission. Continued home lisinopril and metoprolol. TRANSITIONAL ISSUES: Please
+follow-up with PCP to adjust DM medications.
+Original:
+___ were admitted to the Acute Care Service with shortness of breath and chest pain. A heart attack was unlikely, but
+we performed several tests and ruled out acute damage to your heart. ___ performed an echocardiography and found a
+worsening of your heart failure. This was likely due to a pneumonia of your right lung which we found on a chest xray. We treated you with diuretics for your edema and you were started on two antibiotics for ___ pneumonia. You
+significantly improved during the second day in the hospital. You had a problem with your electrolytes which resolved
+with diuresis. Your high blood pressure was treated with your home medictions. Your high blood pressure was treated
+with your home medications. We noticed an increased blood sugar up to 220 and we informed your PCP. We suggest
+increasing your Metformin to 1000 mg. You were discharged to your assisted living facility.
+Cleaned:
+___ were admitted to the hospital with shortness of breath and chest pain. A heart attack was likely and we performed
+several tests and ruled out acute damage to your heart. ___ found a worsening of your heart failure. This was likely
+due to a pneumonia of your lung which we found on a chest x-ray. We treated you with diuretics and you were started
+on two antibiotics for ___ pneumonia. You significantly improved during your stay in the hospital. You had a problem
+with your electrolytes which resolved with diuresis. Your high blood pressure was treated with your home medictions.
+We noticed an increased blood sugar. We suggest increasing your Metformin.
+Cleaned & Improved:
+You were admitted to the hospital with shortness of breath and chest pain. A heart attack was likely and we performed
+several tests and ruled out acute damage to your heart. We found a worsening of your heart failure. This was likely
+due to a pneumonia of your lung which we found on a chest x-ray. We treated you with diuretics and you were started
+on two antibiotics for your pneumonia. You significantly improved during your stay in the hospital. You had a problem
+with your electrolytes which resolved with diuresis. Your high blood pressure was treated with your home medications.
+We noticed an increased blood sugar. We suggest increasing your Metformin.
+
+Figure 10: Example for the creation of the derived datasets Cleaned and Cleaned & Improved. The example
+is a slightly modified version of Figure 2. For Cleaned, we manually replaced hallucinations with
+useful facts in the context or removed them otherwise. For Cleaned & Improved, we further
+corrected mistakes and artifacts such as typos or deidentifications. We performed this process
+for all 100 examples in the Original dataset.
+
+367
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Brief Hospital Course: Mrs. ___ is a ___ female w/ PMH of CAD, HTN, HLD, DMII (on Metformin) who presented to [...]
+Llama 70B trained with 100 original examples:
+You were admitted for shortness of breath and were found to have a mild pneumonia. You were started on antibiotics.
+You were also found to have some fluid build up in your lungs from heart failure. We gave you medications to help
+remove this fluid and your symptoms improved. You should continue the antibiotics you were started on for a total of
+5 days. You should also increase your Metformin to 1000mg twice a day. You should also follow-up with your primary
+care physician to adjust your other diabetes medications.
+Llama 70B trained with 100 cleaned examples:
+You were admitted to the hospital for shortness of breath and chest pain. You were found to have a worsening of your
+heart failure in the setting of pneumonia. You were treated with antibiotics and diuretics. You were also found to
+have a low sodium level in your blood, likely due to the fluid retention. Your sodium level normalized after you were
+given diuretics. You were discharged on oral antibiotics for your pneumonia. You should continue taking your
+medications as you were before admission. Please follow-up with your primary care doctor to adjust your diabetes
+medications.
+GPT-4 5-shot prompted with 5 original examples:
+You were admitted to the hospital with severe shortness of breath and chest pain. It was determined that you were
+experiencing heart failure due to fluid buildup, which was worsened by a lung infection (pneumonia) and possibly by
+eating too much salt. You were given medications to remove the excess fluid and antibiotics to treat the pneumonia.
+Your blood sugar levels were a bit high, and your doctor may adjust your diabetes medication after you leave the
+hospital. Your blood sodium levels were also low due to the excess fluid, but this improved with treatment. Your
+blood pressure was good throughout your stay. You were feeling much better by the time you were ready to go home.
+Please make sure to follow up with your primary care doctor to check on your diabetes medications.
+GPT-4 5-shot prompted with 5 cleaned examples:
+You were admitted to the hospital with severe shortness of breath and chest pain. It was determined that you were
+experiencing a worsening of your chronic heart condition, likely triggered by a lung infection and possibly by eating
+more salt than usual. You were given medication to remove excess fluid from your body, which improved your symptoms.
+The lung infection was treated with antibiotics, and you did not have a fever after the first day of treatment. Your
+blood sugar levels were a bit high, and your doctor may adjust your diabetes medication after you leave the hospital.
+You also had low sodium levels in your blood, which got better with the treatment for your heart condition. Your
+blood pressure was good throughout your stay. Please make sure to see your primary care doctor to discuss your
+diabetes treatment.
+GPT-4 0-shot:
+You were admitted to the hospital with severe shortness of breath and chest pain due to a worsening of your chronic
+heart failure, which was likely aggravated by a lung infection and an increase in salt intake. Your heart tests in
+the emergency room were normal, and there was no sign of a heart attack. You were treated with a medication to remove
+excess fluid from your body, which improved your symptoms. You also had pneumonia, for which you received
+antibiotics, and your fever went away after the first day of treatment. Your blood sugar was a bit high, and your
+doctor recommended adjusting your diabetes medication after leaving the hospital. Additionally, you had a low sodium
+level in your blood because of your heart condition, but this was resolved with treatment. Your blood pressure was
+stable, and you continued your usual blood pressure medications. You were feeling much better by the fifth day and
+were ready to go home, with instructions to see your primary care doctor to fine-tune your diabetes treatment.
+
+Figure 11: Examples for the data-centric hallucination reduction. We generated a summary with all models
+included in the hallucination reduction experiment given the synthetic BHC as context (see Figure
+2). Examples for Llama 70B are identical to Figure 3.
+
+368
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Brief Hospital Course: Mrs. ___ is a ___ female w/ PMH of CAD, HTN, HLD, DMII (on Metformin) who presented to the ED
+with severe dyspnea and chest pain. ___ was admitted for acute on chronic diastolic heart failure in the setting of
+PNA. ACTIVE ISSUES: # Acute on chronic diastolic heart failure: ECG in ED unremarkable w/out ST-T wave abnormalities,
+heart enzymes x2 ruled out acute myocardial damage, exacerbation likely in the setting of PNA. Patient reported
+dietary change w/ increased salt intake that could have caused this. Diuresed with lasix gtt.
+
+Bilanced negative
+
+daily (max. ___ L). Sx improved with diuresis. #Pneumonia: Developed productive cough and new O2 requirement, most
+likely CAP, CXR showed new LLL infiltrate. Started on IV CTX and azithromycin to complete a 5 day course (held home
+atorvastatin in the setting of azithromycin). Fever resolved on HD#1. Remained afebrile for entire admission.
+Significantly improved and was discharged on HD#5. # T2DM: Serum glc slightly elevated on admission. ___ suggested to
+increase Metformin as outpatient (Dr. ___). #Hyponatremia: hypervolemic hyponatremia in setting of DHF. Resolved with
+lasix. # HTN. Normotensive during admission. Continued home lisinopril and metoprolol. TRANSITIONAL ISSUES: Please
+follow-up with PCP to adjust DM medications.
+LED-large trained with all MIMIC data:
+You were admitted to the hospital because you were having chest pain and shortness of breath. You were found to have
+fluid in your lungs and in your legs. This was likely due to a condition called heart failure, where your heart does
+not pump hard enough and fluid backs up into your lungs. You were given a diuretic medication through the IV to help
+get the fluid out. You were also found to have a pneumonia and were started on antibiotics. You improved
+significantly and were ready to leave the hospital. Please continue to take the antibiotics (azithromycin and
+ceftriaxone) through ___. Please do not take your atorvastatin while you are taking the azithromycin.
+Llama 70B trained with 100 cleaned & improved examples:
+You were admitted with shortness of breath and cough. You had an infection in your lungs (pneumonia) and fluid in
+your lungs (heart failure). You were treated with antibiotics and a medication called Lasix to remove the fluid in
+your lungs. You improved with this treatment. You were also started on a new antibiotic called azithromycin. You were
+discharged on this antibiotic to complete a 5 day course. You were also started on a diuretic (Lasix) to remove the
+fluid from your lungs.
+
+Your primary care doctor will need to adjust your medications for your diabetes.
+
+GPT-4 5-shot prompted with 5 cleaned & improved examples:
+You were admitted with severe shortness of breath and chest pain, which was found to be due to a worsening of your
+chronic heart failure, likely triggered by a lung infection (pneumonia) and possibly by a recent increase in your
+salt intake. You were treated with medications to remove excess fluid from your body and antibiotics for the
+pneumonia. Your blood sugar levels were a bit high, and your doctor may adjust your diabetes medication after you
+leave the hospital. You also had low sodium levels in your blood, which improved with the treatment for your heart
+failure. Your blood pressure was well controlled with your usual medications. You are feeling much better now and are
+ready to go home. Please make sure to see your primary care doctor to discuss any changes to your diabetes treatment.
+GPT-4 0-shot:
+You were admitted to the hospital with severe shortness of breath and chest pain due to a worsening of your chronic
+heart failure, which was likely aggravated by a lung infection and an increase in salt intake. Your heart tests in
+the emergency room were normal, and there was no sign of a heart attack. You were treated with a medication to remove
+excess fluid from your body, which improved your symptoms. You also had pneumonia, for which you received
+antibiotics, and your fever went away after the first day of treatment. Your blood sugar was a bit high, and your
+doctor recommended adjusting your diabetes medication after leaving the hospital. Additionally, you had a low sodium
+level in your blood because of your heart condition, but this was resolved with treatment. Your blood pressure was
+stable, and you continued your usual blood pressure medications. You were feeling much better by the fifth day and
+were ready to go home, with instructions to see your primary care doctor to fine-tune your diabetes treatment.
+
+Figure 12: Examples for the qualitative evaluation. We generated a summary with all models included in
+the qualitative evaluation given the synthetic BHC as context (see Figure 2).
+
+369
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Prompt 1
+System
+
+You are a helpful assistant.
+
+User
+
+You will be given a doctor’s note and you will need to summarize the patient’s brief
+hospital course.
+Let’s do a practice round.
+{{#each icl examples}}
+Here is the doctor’s note on a patient’s brief hospital course:
+{{this.document}}
+Summarize for the patient what happened during the hospital stay based on this doctor’s
+note. Please make it short and concise and only include key events and findings.
+{{this.summary}}
+{{/each}}
+Here is the doctor’s note on a patient’s brief hospital course:
+{{test document}}
+Summarize for the patient what happened during the hospital stay based on this doctor’s
+note. Please make it short and concise and only include key events and findings.
+
+Assistant {{generate summary (max tokens=600 temperature=0)}}
+Prompt 2
+System
+
+You are helping with a resident working at a large urban academic medical center.
+
+User
+
+You task is to help summarize a patient’s brief hospital course based on the doctor’s
+note. Please make it short and concise and only include key events and findings.
+Here are some examples:
+{{#each icl examples}}
+DOCUMENT:
+{{this.document}}
+SUMMARY:
+{{this.summary}}
+{{/each}}
+Here is another doctor note on a patient’s brief hospital course:
+DOCUMENT: {{test document}}
+
+Assistant {{generate summary (max tokens=600 temperature=0)}}
+Prompt 3
+System
+
+You are a helpful assistant that helps patients understand their medical records.
+
+User
+
+You will be given some doctor’s notes and you will need to summarize the patient’s brief
+hospital course in one paragraph. Please only include key events and findings and avoid
+using medical jargons, and you MUST start the summary with "You were admitted".
+Here are some examples: {{#foreach icl examples}}
+DOCUMENT:
+{{this.document}}
+SUMMARY:
+{{this.summary}}
+{{/each}}
+DOCUMENT: {{test document}}
+
+Assistant {{generate summary (max tokens=600 temperature=0)}}
+
+Table 14: Different prompts for using GPT-4 to generate patient summaries. In all examples, we can use a
+list of in-context learning examples (icl examples, whether cleaned or not) to guide the models
+for the final generation of the target summary, allowing 600 new tokens as well as using greedy
+decoding.
+
+370
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+We will present you with a pair of a brief hospital course (BHC) and a patient after visit summary
+(AVS). The AVS is also referred to as discharge summary. The BHC contains a detailed summary of
+the hospital stay written by medical service. It usually contains medical jargon, and it can
+follow different structures based on the hospital course and responsible medical specialty. The
+AVS summarizes the hospital stay for the patient in plain language. In practice, the BHC is not
+the only source of information to write the AVS. However, in our setting we treat the BHC as the
+only context for the summary.
+## Instructions
+For this labelling task, we are interested in errors in the AVS that are either unsupported by the
+BHC, contradict content in the BHC, or are wrong medical facts. We allow statements that contain
+general medical knowledge or advice that are often used in patient summaries. Most errors are due
+to unsupported facts, so we further distinguish those based on their specific content. This leads
+to the following error types or labels:
+1. Unsupported facts, including condition/procedure/medication/time/location/
+number/name/word/other
+2. Contradicted fact
+3. Incorrect fact
+And below is the detailed guideline, and we label error spans with the <error> tag (e.g. <error
+class="error type">incorrect fact</error>).
+### Determining Span of Errors
+We label the smallest possible consecutive span that specifies the error given the BHC as a
+context. Removing further parts from the span would remove important information. A useful
+heuristic is to identify the minimal span that must be replaced to obtain a correct statement that
+is grammatically correct. For example
+- "We performed an <error>esophageal-gastro-duodenoscopy (EGD).<error>" when no such procedure
+is reported in the BHC. The article "an" is not labeled as an error. When no procedure at all was
+performed "performed an esophageal-gastro-duodenoscopy (EGD)" should be labeled as error because
+there is no suitable substitute for "esophageal-gastro-duodenoscopy (EGD)".
+- "After the surgery, we <error>transitioned you to oral oxycodone</error>." when the BHC
+contains no information for such a transition. If another medication transition is mentioned in
+the BHC and makes sense in this sentence only "oral oxycodone" should be labeled. If another oral
+medication transition is mentioned in the BHC only "oxycodone" should be labeled.
+- "<error>Your symptoms responded well</error>." when no part of the sentence makes sense in the
+given context of the AVS.
+We allow general medical knowledge and advice that is often part of the AVS. Usually, these are
+information that are not specific for the hospital course given in the BHC. For example
+- "Please take your medications as prescribed" contains no error even though the BHC does not
+contain this instruction because this is general medical advice.
+- "If the symptoms get worse, please contact your doctor" contains no error even when the BHC
+does not contain this fact, since it is general medical knowledge that a doctor should be seen
+for worsening symptoms.
+We try to ignore grammatical errors in the BHC and AVS. If the original meaning can still be
+inferred (e.g. "medictaions" instead of "medications"), the most likely corrected form can be
+used. If the meaning cannot be inferred, they can be ignored in the BHC or labeled as Unsupported
+Other in the AVS.
+If a sentence or phrase is repeated, then please treat it as you would any other sentence and
+highlight all errors (even if you did so in a previous sentence). For example
+- "Please take Tylenol. Please take Tylenol" when Tylenol was prescribed in the BHC.
+- "Limit your <error>use of stairs</error>. Please limit <error>use of stairs</error>" when
+movement was encouraged.
+
+Table 15: Prompts for using GPT-4 to detect hallucinations (Part 1). We only show the user message as
+the system prompt is the same as in Table 14.
+371
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Continued from Table 15
+To get reliable error counts a span should only contain a single error.
+- "You received <error>Tylenol</error> and <error>Ciprofloxacin</error>" when there is no
+evidence in the BHC that the two medications were administered to the patient.
+- "You have a <error>follow-up appointment with your PCP</error> and <error>your
+cardiologist</error>" when no such follow up is mentioned in the BHC. Both errors are labeled
+separately.
+### Dealing with Deidentified Information
+The data contains deidentified information shown with " " in the text. We always treat this as
+non-existent information. So, the annotators should not infer what the deidentified information
+could be. In general, deidentified fields in the AVS should not be labeled as errors. However,
+sometimes they belong to a wrong statement or clearly contain unsupported information (e.g., a
+doctor’s name or phone numbers) that are not given in the BHC. In these cases, deidentified fields
+should be included in the error span. For example
+- "Take
+<error>200mg daily</error> and try to rest" when no such dosage information is
+provided in the BHC, but the statement to rest. The deidentified medication name is excluded from
+the error span.
+- "Please avoid going up <error>more than
+stairs</error> at a time" when restrictions for the
+number of stairs taken at a time are note mentioned in the BHC.
+- "<error>Dr.
+will follow up with you</error>" when no follow-up is mentioned in the BHC.
+- "Please stop taking Aspirin <error>on
+</error>" when no stopping date is given in the BHC.
+million</error>" if there is no hint of a specific red blood cell
+- "Your RBC peaked <error>at
+count given in the BHC.
+### Error Types
+In general, we ask for the most specific error that is applicable. If there is uncertainty which
+type applies, prefer the one mentioned first in the enumeration of all error types shown earlier.
+For instance, if the error contains an unsupported medication name, the Unsupported medication type
+should be used instead of the Unsupported name type. Here is a detailed description of the error
+types:
+- ‘Unsupported Condition‘: includes unsupported symptoms, diseases, or findings of the patient.
+For example
+- "You were found to have a <error class="unsupported condition">left clavicle
+fracture</error>" when no information was given for this condition in the BHC.
+- ‘Unsupported Procedure‘: includes any unsupported medical procedures. For example
+- "You had a <error class="unsupported procedure">filter placed in your vein</error>" when no
+intervention with a filter was mentioned.
+- ‘Unsupported Medication‘: contains all errors related to unsupported medications. This includes
+medication classes, substances, routes, frequencies, and dosages. For example
+- "You were placed on <error class="unsupported medication">antibiotics</error>" when only
+blood thinners were prescribed.
+- ‘Unsupported Time‘: includes all errors for unsupported time or interval statements. For
+example
+- "Keep your arm in a sling for the <error class="unsupported time">next 6 weeks</error>"
+when no specific duration is given.
+- ‘Unsupported Location‘: Locations include both unsupported physical places as well as regions of
+the patient. For example
+- "The patient was admitted to the <error class="unsupported location">Acute Surgery
+Service</error>" when no admission location was provided in the BHC.
+- ‘Unsupported Number‘: any number either as digits or written that are unsupported. This also
+includes words such as "a" and "an". For example
+- "Your pacemaker rate was increased to <error class="unsupported number">50</error>" when
+the rate of 50 is not given in the BHC.
+
+Table 16: Prompts for using GPT-4 to detect hallucinations (Part 2).
+
+372
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Continued from Table 16
+- ‘Unsupported Name‘: named entities that are not supported by the BHC. For example
+- "You were seen by the <error class="unsupported name">interventional pulmonary
+service</error>" when no consult with this service was mentioned in the BHC. - ‘Unsupported
+Word‘: incorrect or inappropriate words or phrases which do not fit in any of the above types.
+For example
+- "We will send you home with a <error class="unsupported word">drain</error> in place" when
+drain not mentioned in the BHC.
+- ‘Unsupported Other‘: If there is a mistake which clearly does not belong to any of the above
+categories, you may use this category as a last resort. We cannot give precise instructions
+because the "other" category is very broad.
+- ‘Contradicted Fact‘: This error type is independent of the content and contains all facts that
+clearly contradict information provided in the BHC. For example
+- "Your pacemaker rate was increased to <error class="contradicted fact">50</error>" when the
+context state a pacemaker rate of 40.
+- ‘Incorrect Fact‘: This error type is independent of the content and contains all facts that
+clearly contradict general medical knowledge or advice. For example
+- "We diagnosed a seizure, and you <error class="incorrect fact">can continue driving your
+car</error>" when no reason for allowing driving after a seizure is provided this contradict
+common medical knowledge.
+## Examples
+{{#each icl examples}}
+### Example {{this.index}}
+BHC:
+{{this.document}}
+AVS:
+{{this.summary}}
+ERRORS:
+{{this.cot description}}
+AVS WITH ERRORS LABELED:
+{{this.summary with errors}}
+{{/each}}
+### Example {{n shot+1}}
+BHC:
+{{test document}}
+AVS:
+{{test summary}}
+ERROR:
+
+Table 17: Prompts for using GPT-4 to detect hallucinations (Part 3).
+
+373
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+Appendix G. Guidelines for Patient Summary Annotation
+
+Guidelines for Annota0ng Errors in Pa0ent Summaries
+We will present you with a pair of a brief hospital course (BHC) and a pa:ent a;er visit summary
+(AVS). The AVS is also referred to as discharge summary. The BHC contains a detailed summary
+of the hospital stay wriDen by medical service. It usually contains medical jargon, and it can
+follow diﬀerent structures based on the hospital course and responsible medical specialty. The
+AVS summarizes the hospital stay for the pa:ent in plain language. In prac:ce, the BHC is not
+the only source of informa:on to write the AVS. However, in our seJng we treat the BHC as the
+only context for the summary.
+For this labelling task, we are interested in errors in the AVS that are either unsupported by the
+BHC, contradict content in the BHC, or are wrong medical facts. We allow statements that
+contain general medical knowledge or advice that are o;en used in pa:ent summaries. Most
+errors are due to unsupported facts, so we further dis:nguish those based on their speciﬁc
+content. This leads to the following error types or labels:
+1. Unsupported condi:on
+2. Unsupported procedure
+3. Unsupported medica:on
+4. Unsupported :me
+5. Unsupported loca:on
+6. Unsupported number
+7. Unsupported name
+8. Unsupported word
+9. Unsupported other
+10. Contradicted fact
+11. Incorrect fact
+
+Allowed General Medical Knowledge and Medical Advice
+We allow general medical knowledge and advice that is o;en part of the AVS. Usually, these are
+informa:on that are not speciﬁc for the hospital course given in the BHC. For example
+• “Please take your medica:ons as prescribed” contains no error even though the BHC
+does not contain this instruc:on because this is general medical advice.
+• “If the symptoms get worse, please contact your doctor” contains no error even when
+the BHC does not contain this fact, since it is general medical knowledge that a doctor
+should be seen for worsening symptoms.
+
+Determining Span of Errors
+We label the smallest possible consecu:ve span that speciﬁes the error given the BHC as a
+context. Removing further parts from the span would remove important informa:on. A useful
+heuris:c is to iden:fy the minimal span that must be replaced to obtain a correct statement
+that is gramma:cally correct. For example
+
+374
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+•
+
+•
+
+•
+
+“We performed an esophageal-gastro-duodenoscopy (EGD).” when no such procedure is
+reported in the BHC. The ar:cle “an” is not labeled as an error. When no procedure at all
+was performed “performed an esophageal-gastro-duodenoscopy (EGD)” should be
+labeled as error because there is no suitable subs:tute for “esophageal-gastroduodenoscopy (EGD)”.
+“A;er the surgery, we transi:oned you to oral oxycodone.” when the BHC contains no
+informa:on for such a transi:on. If another medica:on transi:on is men:oned in the
+BHC and makes sense in this sentence only “oral oxycodone” should be labeled. If
+another oral medica:on transi:on is men:oned in the BHC only “oxycodone” should be
+labeled.
+“Your symptoms responded well.” when no part of the sentence makes sense in the
+given context of the AVS.
+
+Also, to get reliable error counts a span should only contain a single error.
+•
+•
+
+“You received Tylenol and Ciproﬂoxacin” when there is no evidence in the BHC that the
+two medica:ons were administered to the pa:ent.
+“You have a follow-up appointment with your PCP and your cardiologist” when no such
+follow up is men:oned in the BHC. Both errors are labeled separately.
+
+Dealing with Deiden;ﬁed Informa;on
+The data contains deiden:ﬁed informa:on shown with “___” in the text. We always treat this as
+non-existent informa:on. So, the annotators should not infer what the deiden:ﬁed informa:on
+could be. In general, deiden:ﬁed ﬁelds in the AVS should not be labeled as errors. However,
+some:mes they belong to a wrong statement or clearly contain unsupported informa:on (e.g.,
+a doctor’s name or phone numbers) that are not given in the BHC. In these cases, deiden:ﬁed
+ﬁelds should be included in the error span. For example
+• “Take ___ 200mg daily and try to rest” when no such dosage informa:on is provided in
+the BHC, but the statement to rest. The deiden:ﬁed medica:on name is excluded from
+the error span.
+• “Please avoid going up more than ___ stairs at a :me” when restric:ons for the number
+of stairs taken at a :me are note men:oned in the BHC.
+• “Dr. ___ will follow up with you” when no follow-up is men:oned in the BHC.
+• “Please stop taking Aspirin on ___” when no stopping date is given in the BHC.
+• “Your RBC peaked at ___ million” if there is no hint of a speciﬁc red blood cell count
+given in the BHC.
+
+Error Types
+We dis:nguish diﬀerent error types. In general, we ask for the most speciﬁc error that is
+applicable. If there is uncertainty which type applies, prefer the one men:oned ﬁrst in the
+enumera:on of all error types shown earlier.
+
+375
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+For instance, if the error contains an unsupported medica:on name, the Unsupported
+medica0on type should be used instead of the Unsupported name type.
+Unsupported Condi.on
+Unsupported condi:ons include unsupported symptoms, diseases, or ﬁndings of the pa:ent.
+For example
+• “You were found to have a le; clavicle fracture” when no informa:on was given for this
+condi:on in the BHC.
+• “The ultrasound showed no blood clots in your leg” when the ultrasound showed a deep
+vein thrombosis in the right leg.
+Unsupported Procedure
+Unsupported procedures include any unsupported medical procedures. For example
+• “You had a ﬁlter placed in your vein” when no interven:on with a ﬁlter was men:oned.
+• “You underwent a le; clavicle repair” when the humerus was repaired.
+Unsupported Medica.on
+This type contains all errors related to unsupported medica:ons. This includes medica:on
+classes, substances, routes, frequencies, and dosages. For example
+• “You were placed on an:bio:cs” when only blood thinners were prescribed.
+• “We gave you blood thinners by mouth” when blood thinners were administered by IV.
+• “You received IV an:bio:cs” when no route was speciﬁed in the BHC.
+• “Please take amitriptyline daily” when no interval for amitriptyline is given.
+• “We started you on Coumadin 5 mg” when no dosage for the Coumadin is provided.
+Unsupported Time
+Unsupported :me includes all errors for unsupported :me or interval statements. For example
+• “Keep your arm in a sling for the next 6 weeks” when no speciﬁc dura:on is given.
+• “Your family arranges home care while you are geJng discharged” when the family was
+instructed to establish home care before the pa:ent gets discharged.
+Unsupported Loca.on
+Loca:ons include both unsupported physical places as well as regions of the pa:ent. For
+example
+• “The pa:ent was admiDed to the Acute Surgery Service” when no admission loca:on
+was provided in the BHC.
+• “There was concern for a thrombus in the right leg” when no side of the thrombus was
+speciﬁed.
+Unsupported Number
+Unsupported numbers are any number either as digits or wriDen that are unsupported. This
+also includes words such as “a” and “an”. For example
+
+376
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+•
+•
+•
+•
+
+“Your pacemaker rate was increased to 50” when the rate of 50 is not given in the BHC.
+“You had a fracture of your second metacarpal” when no informa:on about which
+metacarpal bone was fractured is given in the context.
+“If you have another episode” when the context asks for at least two more episodes.
+“You can take one more of this pill” if two addi:onal pills are allowed according to the
+BHC.
+
+Unsupported Name
+Named en::es that are not supported by the BHC. For example
+• “You were seen by the interven:onal pulmonary service” when no consult with this
+service was men:oned in the BHC.
+• “We discharged you the Gold Housing assisted living” when the name of the assisted
+living facility is not provided in the context.
+Unsupported Word
+Word mistakes are incorrect or inappropriate words or phrases which do not ﬁt in any of the
+above types. For example
+• “We will send you home with a drain in place” when drain not men:oned in the BHC.
+• “Limit your use of stairs” when movement is encouraged.
+Unsupported Other
+If there is a mistake which clearly does not belong to any of the above categories, you may use
+this category as a last resort. We cannot give precise instruc:ons because the “other” category
+is very broad.
+Contradicted Fact
+This error type is independent of the content and contains all facts that clearly contradict
+informa:on provided in the BHC. For example
+• “Your pacemaker rate was increased to 50” when the context state a pacemaker rate of
+40.
+• “We started you on ASS 81 mg” when the BHC contains a dosage of 300 mg for ASS.
+Incorrect Fact
+This error type is independent of the content and contains all facts that clearly contradict
+general medical knowledge or advice. For example
+• “We diagnosed a seizure, and you can con:nue driving your car” when no reason for
+allowing driving a;er a seizure is provided this contradict common medical knowledge.
+
+Special Situa;ons
+Gramma.cal Errors
+We try to ignore gramma:cal errors in the BHC and AVS. If the original meaning can s:ll be
+inferred (e.g. “medictaions” instead of “medica:ons), the most likely corrected form can be
+
+377
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+used. If the meaning cannot be inferred, they can be ignored in the BHC or labeled as
+Unsupported Other in the AVS.
+Repeated Content
+If a sentence or phrase is repeated, then please treat it as you would any other sentence and
+highlight all errors (even if you did so in a previous sentence). For example
+• “Please take Tylenol. Please take Tylenol” when Tylenol was prescribed in the BHC.
+• “Limit your use of stairs. Please limit use of stairs” when movement was encouraged.
+Complex Mistakes
+If there are mul:ple ways in which you can annotate a sentence, follow the following rules:
+1. Choose the alterna:ve with fewest total mistakes.
+2. Choose the alterna:ve with the smallest error spans.
+3. If both annota:ons would lead to the same number of mistakes with the same span
+sizes, prefer the error men:oned ﬁrst in the enumera:on of all error types above.
+
+Addi;onal Clariﬁca;ons
+Clariﬁca.ons from ﬁrst batch of 5 test examples
+• If a condi:on is a consequence of another condi:on, it is not labeled as an error even if
+it is not directly men:oned.
+o For example, “You had pain during your admission” if a severe trauma is
+men:oned in the BHC.
+• If another doctor takes over the treatment, it can be assumed that they re-evaluate the
+pa:ent and can decide the following treatment.
+o For example, “Please con:nue your medica:ons un:l your PCP appointment” if
+no stopping :me for the medica:ons was men:oned in the BHC.
+• Facts classiﬁed as general medical knowledge are considered from a doctor’s
+perspec:ve. The doctors write the AVS; hence, this general knowledge needs no support
+in the BHC but can be assumed to be known by any doctor.
+o For example, “A;er we placed a drug-elu:ng stent you will receive two blood
+thinning medica:ons” if the BHC men:ons the placement if a drug-elu:ng stent,
+the an:platelet therapy can be assumed as general knowledge.
+• If a medical specialty commonly treats a condi:on or performs a procedure, this is
+considered general knowledge and not considered as an unsupported fact.
+o For example, “Neurology evaluated your EEG” if the EEG evalua:on was
+men:oned in the BHC but though no specialty was given.
+Clariﬁca.ons from second batch of 5 test examples
+• Speciﬁc names of departments are not treated as general knowledge even though it is
+likely that they treat a condi:on or perform a procedure. We require those to be
+explicitly named in the BHC.
+
+378
+
+A Data-Centric Approach To Generate Faithful and High Quality Patient Summaries with LLMs
+
+•
+
+o For example, “Neuro Epilepsy Service evaluated your EEG” if the EEG evalua:on
+was men:oned in the BHC but no responsible department was given.
+The main condi:on for admission named in the summary (“You were admiDed for …”)
+cannot only be derived from the main condi:on named in the BHC. Some:mes another
+major reason relevant to the pa:ent is men:oned later in the BHC, so it is also
+acceptable to use this.
+o For example, “You were admiDed for abdominal pain.” If the BHC states an ileus
+as the main reason but also men:ons the abdominal pain.
+
+Clariﬁca.ons from agreement procedures of 100 examples
+• A reference to addi:onal material or informa:on that are not part of the AVS (e.g.,
+medica:on plan or phone number) are considered as unsupported facts.
+o For example, “Your medica:on plan is aDached.” If no medica:on plan is
+men:oned in the BHC.
+• Generaliza:ons and simpliﬁca:ons of medical condi:ons or procedures that are s:ll
+close to the informa:on in the BHC and aid pa:ent understanding are not considered as
+unsupported facts.
+o For example, “You WBC was low” when the BHC men:ons a neutropenia.
+• If a span contains diﬀerent error types, it is labeled as “unsupported word”.
+o For example, “The lab test showed an increased risk of bleeding.” when no lab
+test or increased risk of bleeding is men:oned in BHC. The error is labeled with
+one span since logically they belong together.
+• If a common daily dosage of a medica:on is given, we treat instruc:ons for daily intake
+in the AVS as general knowledge.
+o For example, “You therapy was changed to Plavix 75 mg daily.” If the BHC only
+contains the therapy change to Plavix 75 mg.
+• If unsupported en::es are clearly referred to in the next sentence, they are again
+labeled as an error.
+o For example, “Vascular Surgery was consulted. They recommended no surgery.”
+if the vascular surgery team is not men:oned in the BHC.
+
+379
+
+
